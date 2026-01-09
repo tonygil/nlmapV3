@@ -1,0 +1,16 @@
+{
+  "description": "Dutch language synonyms for NL Taxonomy Mapper",
+  "language": "Dutch",
+  "version": "1.0",
+  "synonyms": {
+    "bankzaken": ["bank", "banken", "bankafschriften", "bankrekeningen", "bankenmodule"],
+    "betalen": ["betaling", "betalingen"],
+    "incasseren": ["incasso"],
+    "facturatie": ["facturen", "factuur", "facturering"],
+    "jaarafsluiting": ["jaarrekening", "jaarafsluiten"],
+    "btw": ["belasting", "belastingaangifte"],
+    "relatiebeheer": ["klanten", "leveranciers", "debiteuren", "crediteuren"],
+    "grootboek": ["grootboekrekeningen"],
+    "vaste activa": ["activa", "activum"]
+  }
+}

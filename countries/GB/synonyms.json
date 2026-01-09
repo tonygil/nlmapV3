@@ -1,0 +1,22 @@
+{
+  "description": "UK English synonyms for GB Taxonomy Mapper",
+  "language": "English (UK)",
+  "version": "1.0",
+  "synonyms": {
+    "accounting": ["accounts", "accountancy", "bookkeeping"],
+    "invoicing": ["invoice", "invoices", "billing", "bill"],
+    "payment": ["payments", "pay", "paying", "remittance"],
+    "banking": ["bank", "banks", "bank account", "bank accounts"],
+    "vat": ["value added tax", "tax", "taxation", "vat return"],
+    "supplier": ["suppliers", "vendor", "vendors", "creditor", "creditors"],
+    "customer": ["customers", "client", "clients", "debtor", "debtors"],
+    "ledger": ["general ledger", "nominal ledger", "chart of accounts"],
+    "assets": ["fixed assets", "asset", "capital assets"],
+    "payroll": ["pay", "wages", "salary", "salaries"],
+    "purchases": ["purchase", "buying", "procurement"],
+    "sales": ["sale", "selling", "revenue", "turnover"],
+    "reconciliation": ["reconcile", "reconciling", "bank rec"],
+    "reporting": ["reports", "report", "financial reports"],
+    "year end": ["year-end", "yearend", "financial year end", "year end close"]
+  }
+}

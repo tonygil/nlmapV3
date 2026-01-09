@@ -1,0 +1,14 @@
+{
+  "description": "Swedish language synonyms for SE Taxonomy Mapper",
+  "language": "Swedish",
+  "version": "1.0",
+  "synonyms": {
+    "bokföring": ["bokföra", "bokför", "bokförs"],
+    "fakturering": ["faktura", "fakturor", "fakturera"],
+    "leverantörer": ["leverantör"],
+    "kunder": ["kund"],
+    "moms": ["mervärdeskatt", "skatt"],
+    "betalning": ["betala", "betalningar"],
+    "redovisning": ["redovisa", "redovisar"]
+  }
+}

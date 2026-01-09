@@ -1,6 +1,6 @@
 """
-NL Taxonomy Mapper V2 - Beautiful GUI Application
-Modern and intuitive user interface for taxonomy matching
+NL Taxonomy Mapper V3 - Beautiful GUI Application
+Modern interface with multi-country support
 """
 
 import tkinter as tk
@@ -9,6 +9,7 @@ import threading
 import os
 from datetime import datetime
 from taxonomy_matcher import TaxonomyMatcher
+from country_config import CountryConfig
 import sys
 
 
@@ -18,8 +19,8 @@ class TaxonomyMapperGUI:
     def __init__(self, root):
         """Initialize the GUI application."""
         self.root = root
-        self.root.title("NL Taxonomy Mapper V2")
-        self.root.geometry("900x700")
+        self.root.title("NL Taxonomy Mapper V3")
+        self.root.geometry("1000x850")  # Increased size for better fit
         self.root.resizable(True, True)
         
         # Modern color scheme
@@ -42,12 +43,33 @@ class TaxonomyMapperGUI:
         self.taxonomy_file = tk.StringVar()
         self.output_file = tk.StringVar(value='taxonomy_match.xlsx')
         self.threshold = tk.IntVar(value=80)
+        self.consolidate_topics = tk.BooleanVar(value=False)
         self.is_processing = False
-        
+
+        # Country configuration
+        try:
+            self.country_config = CountryConfig()
+            self.available_countries = self.country_config.get_available_countries()
+            default_country = self.country_config.get_default_country()
+        except Exception as e:
+            messagebox.showerror(
+                "Configuration Error",
+                f"Failed to load country configuration:\n{e}\n\n"
+                "Please check config.yaml exists and is valid."
+            )
+            self.root.quit()
+            return
+
+        self.selected_country = tk.StringVar(value=default_country)
+
         # Create UI
         self.create_header()
         self.create_main_content()
         self.create_footer()
+
+        # Initialize status indicators
+        self.on_consolidate_toggle()  # Set initial status
+
         self.center_window()
         
     def center_window(self):
@@ -67,15 +89,15 @@ class TaxonomyMapperGUI:
         
         tk.Label(
             header,
-            text=" Sitecore Taxonomy Mapper",
+            text="🌍 Sitecore Taxonomy Mapper V3",
             font=('Segoe UI', 24, 'bold'),
             bg=self.colors['primary'],
             fg='white'
         ).pack(side='left', padx=30, pady=20)
-        
+
         tk.Label(
             header,
-            text="V2.0",
+            text="V3.0 Multi-Country",
             font=('Segoe UI', 12),
             bg=self.colors['primary'],
             fg='white'
@@ -84,7 +106,7 @@ class TaxonomyMapperGUI:
     def create_main_content(self):
         """Create main content area."""
         main = tk.Frame(self.root, bg=self.colors['background'])
-        main.pack(fill='both', expand=True, padx=20, pady=20)
+        main.pack(fill='both', expand=True, padx=15, pady=10)
         
         # Style notebook
         style = ttk.Style()
@@ -107,20 +129,26 @@ class TaxonomyMapperGUI:
         # Input Files Card
         input_card = self.create_card(frame, " Input Files")
         input_card.pack(fill='x', padx=10, pady=10)
-        
+
+        # Country/Language Selector
+        self.create_country_selector(input_card)
+
         self.create_file_row(
             input_card,
             "URL Keywords file:",
             self.semantic_file,
             "Select semantic_carriers_list.xlsx"
         )
-        
+
         self.create_file_row(
             input_card,
             "Taxonomy File:",
             self.taxonomy_file,
             "Select NL Taxonomy V2.xlsx"
         )
+
+        # Bind country change to auto-populate file paths
+        self.selected_country.trace('w', self.on_country_changed)
         
         # Output Card
         output_card = self.create_card(frame, " Output Settings")
@@ -179,11 +207,48 @@ class TaxonomyMapperGUI:
             font=('Segoe UI', 9),
             bg=self.colors['card'],
             fg=self.colors['text_light']
-        ).pack(padx=20, pady=(0, 15))
-        
+        ).pack(padx=20, pady=(0, 8))
+
+        # Topic Consolidation Option
+        consolidate_frame = tk.Frame(settings_card, bg=self.colors['card'])
+        consolidate_frame.pack(fill='x', padx=20, pady=10)
+
+        self.consolidate_checkbox = tk.Checkbutton(
+            consolidate_frame,
+            text=" Consolidate topics into columns (one row per URL-Segment)",
+            variable=self.consolidate_topics,
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            activebackground=self.colors['card'],
+            selectcolor='white',  # White background makes checkmark more visible
+            highlightthickness=2,
+            highlightbackground=self.colors['primary'],
+            command=self.on_consolidate_toggle
+        )
+        self.consolidate_checkbox.pack(side='left')
+
+        # Status indicator
+        self.consolidate_status = tk.Label(
+            consolidate_frame,
+            text="[OFF]",
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['error']
+        )
+        self.consolidate_status.pack(side='left', padx=10)
+
+        tk.Label(
+            settings_card,
+            text=" When enabled, multiple topics appear as Topic_1, Topic_2, etc. in one row",
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        ).pack(padx=20, pady=(0, 8))
+
         # Buttons
         btn_frame = tk.Frame(frame, bg=self.colors['background'])
-        btn_frame.pack(fill='x', pady=20)
+        btn_frame.pack(fill='x', pady=10)
         
         self.run_btn = tk.Button(
             btn_frame,
@@ -272,12 +337,17 @@ class TaxonomyMapperGUI:
         content = tk.Frame(card, bg=self.colors['card'])
         content.pack(fill='both', expand=True, padx=30, pady=20)
         
+        # Build country list string
+        countries_list = ", ".join([c['code'] for c in self.available_countries])
+
         info = [
-            ("Application:", "NL Taxonomy Mapper V2"),
-            ("Version:", "2.0.0"),
+            ("Application:", "NL Taxonomy Mapper V3"),
+            ("Version:", "3.0.0 Multi-Country"),
             ("Purpose:", "Match URLs to taxonomy topics using fuzzy matching"),
             ("", ""),
-            ("Features:", " Fuzzy string matching\n Dutch synonym support\n Auto deduplication\n Dynamic topic detection"),
+            ("Features:", "✓ Multi-country support\n✓ Fuzzy string matching\n✓ Language-specific synonyms\n✓ Auto deduplication\n✓ Dynamic topic detection"),
+            ("", ""),
+            ("Countries:", countries_list),
         ]
         
         for label, value in info:
@@ -395,7 +465,91 @@ class TaxonomyMapperGUI:
         
         if file:
             variable.set(file)
-            
+
+    def create_country_selector(self, parent):
+        """Create country/language selection dropdown."""
+        row = tk.Frame(parent, bg=self.colors['card'])
+        row.pack(fill='x', padx=20, pady=12)
+
+        tk.Label(
+            row,
+            text="Country/Language:",
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['card'],
+            width=18,
+            anchor='w'
+        ).pack(side='left')
+
+        # Country dropdown
+        country_dropdown = ttk.Combobox(
+            row,
+            textvariable=self.selected_country,
+            values=[c['code'] for c in self.available_countries],
+            state='readonly',
+            font=('Segoe UI', 10),
+            width=15
+        )
+        country_dropdown.pack(side='left', padx=(0, 10))
+
+        # Display full name as label
+        self.country_label = tk.Label(
+            row,
+            text=self._get_country_display_name(self.selected_country.get()),
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        )
+        self.country_label.pack(side='left', fill='x', expand=True)
+
+    def _get_country_display_name(self, code):
+        """Get full display name for country code."""
+        for c in self.available_countries:
+            if c['code'] == code:
+                return f"{c['name']} ({c['language']})"
+        return code
+
+    def on_country_changed(self, *args):
+        """Handle country selection change - auto-populate file paths."""
+        country_code = self.selected_country.get()
+
+        # Update display label
+        self.country_label.config(text=self._get_country_display_name(country_code))
+
+        # Auto-populate file paths from config
+        try:
+            files = self.country_config.get_country_files(country_code)
+
+            # Only update if fields are empty or contain default paths
+            if not self.semantic_file.get() or 'semantic_carriers' in self.semantic_file.get():
+                self.semantic_file.set(files['semantic_carriers'])
+
+            if not self.taxonomy_file.get() or 'taxonomy' in self.taxonomy_file.get().lower():
+                self.taxonomy_file.set(files['taxonomy'])
+
+            # Update output filename with country code
+            current_output = self.output_file.get()
+            if current_output:
+                # Remove old country code if present
+                base = current_output.replace('.xlsx', '')
+                for c in self.available_countries:
+                    base = base.replace(f"_{c['code']}", "")
+                # Add new country code
+                self.output_file.set(f"{base}_{country_code}.xlsx")
+            else:
+                self.output_file.set(f'taxonomy_match_{country_code}.xlsx')
+
+            self.log(f"Switched to {self._get_country_display_name(country_code)}")
+
+        except Exception as e:
+            self.log(f"Warning: Could not load files for {country_code}: {e}")
+
+    def on_consolidate_toggle(self):
+        """Handle consolidation checkbox toggle - update status indicator."""
+        if self.consolidate_topics.get():
+            self.consolidate_status.config(text="[ON]", fg=self.colors['secondary'])
+        else:
+            self.consolidate_status.config(text="[OFF]", fg=self.colors['error'])
+
     def update_threshold(self, value):
         """Update threshold label."""
         self.threshold_label.config(text=f"{int(float(value))}%")
@@ -424,6 +578,8 @@ class TaxonomyMapperGUI:
         self.taxonomy_file.set('')
         self.output_file.set('taxonomy_match.xlsx')
         self.threshold.set(80)
+        self.consolidate_topics.set(False)
+        self.on_consolidate_toggle()  # Update status indicator
         self.clear_log()
         self.log("Form reset")
         
@@ -468,14 +624,16 @@ class TaxonomyMapperGUI:
         """Process matching."""
         try:
             self.log("=" * 50)
-            self.log("Starting NL Taxonomy Mapper V2")
+            self.log("Starting NL Taxonomy Mapper V3")
             self.log("=" * 50)
-            
+
             matcher = TaxonomyMatcher(
+                country_code=self.selected_country.get(),
                 semantic_file=self.semantic_file.get(),
                 taxonomy_file=self.taxonomy_file.get(),
                 output_file=self.output_file.get(),
-                similarity_threshold=self.threshold.get()
+                similarity_threshold=self.threshold.get(),
+                consolidate_topics=self.consolidate_topics.get()
             )
             
             # Redirect print to log

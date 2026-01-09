@@ -1,50 +1,94 @@
 """
-NL Taxonomy Mapper V2
-Matches URLs from semantic carriers to NL Taxonomy topics using fuzzy string matching.
-Now includes Segment matching!
+NL Taxonomy Mapper V3
+Matches URLs from semantic carriers to taxonomy topics using fuzzy string matching.
+NOW WITH MULTI-COUNTRY SUPPORT!
 """
 
 import pandas as pd
 from fuzzywuzzy import fuzz
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import os
+import argparse
+from country_config import CountryConfig
 
 
 class TaxonomyMatcher:
     """Main class for matching URL keywords to taxonomy topics."""
     
-    def __init__(self, 
-                 semantic_file: str = 'semantic_carriers_list.xlsx',
-                 taxonomy_file: str = 'NL Taxonomy V2.xlsx',
-                 output_file: str = 'taxonomy_match.xlsx',
-                 similarity_threshold: int = 80):
+    def __init__(self,
+                 country_code: Optional[str] = None,
+                 semantic_file: Optional[str] = None,
+                 taxonomy_file: Optional[str] = None,
+                 output_file: Optional[str] = None,
+                 similarity_threshold: Optional[int] = None,
+                 consolidate_topics: Optional[bool] = None,
+                 config_file: str = 'config.yaml'):
         """
         Initialize the TaxonomyMatcher.
-        
+
         Args:
-            semantic_file: Path to semantic carriers Excel file
-            taxonomy_file: Path to taxonomy Excel file
-            output_file: Path for output Excel file
-            similarity_threshold: Minimum similarity score (0-100) for matches
+            country_code: Two-letter country code (NL, SE, BE) - if None, uses default
+            semantic_file: Path to semantic carriers file (overrides config)
+            taxonomy_file: Path to taxonomy file (overrides config)
+            output_file: Path for output file (auto-generated if None)
+            similarity_threshold: Minimum similarity score (overrides config)
+            consolidate_topics: Consolidate topics into columns (overrides config)
+            config_file: Path to YAML configuration file
         """
+        # Load country configuration
+        self.country_config = CountryConfig(config_file)
+
+        # Determine country (fallback to default if not specified)
+        if country_code is None:
+            country_code = self.country_config.get_default_country()
+        self.country_code = country_code.upper()
+
+        # Validate country exists
+        available = [c['code'] for c in self.country_config.get_available_countries()]
+        if self.country_code not in available:
+            raise ValueError(
+                f"Country '{self.country_code}' not available. "
+                f"Available countries: {', '.join(available)}"
+            )
+
+        # Get country-specific files (if not explicitly provided)
+        if semantic_file is None or taxonomy_file is None:
+            country_files = self.country_config.get_country_files(self.country_code)
+
+            if semantic_file is None:
+                semantic_file = country_files['semantic_carriers']
+            if taxonomy_file is None:
+                taxonomy_file = country_files['taxonomy']
+
         self.semantic_file = semantic_file
         self.taxonomy_file = taxonomy_file
+
+        # Generate output filename with country code suffix
+        if output_file is None:
+            output_file = f'taxonomy_match_{self.country_code}.xlsx'
+        # If user provided filename without country code, add it
+        elif not output_file.replace('.xlsx', '').endswith(f'_{self.country_code}'):
+            base, ext = os.path.splitext(output_file)
+            output_file = f'{base}_{self.country_code}{ext}'
+
         self.output_file = output_file
+
+        # Load country settings
+        country_settings = self.country_config.get_country_settings(self.country_code)
+
+        # Use provided threshold or country default
+        if similarity_threshold is None:
+            similarity_threshold = country_settings.get('similarity_threshold', 80)
         self.similarity_threshold = similarity_threshold
-        
-        # Synonym dictionary for Dutch terms
-        self.synonyms = {
-            'bankzaken': ['bank', 'banken', 'bankafschriften', 'bankrekeningen', 'bankenmodule'],
-            'betalen': ['betaling', 'betalingen'],
-            'incasseren': ['incasso'],
-            'facturatie': ['facturen', 'factuur', 'facturering'],
-            'jaarafsluiting': ['jaarrekening', 'jaarafsluiten'],
-            'btw': ['belasting', 'belastingaangifte'],
-            'relatiebeheer': ['klanten', 'leveranciers', 'debiteuren', 'crediteuren'],
-            'grootboek': ['grootboekrekeningen'],
-            'vaste activa': ['activa', 'activum'],
-        }
-        
+
+        # Use provided consolidate_topics or country default
+        if consolidate_topics is None:
+            consolidate_topics = country_settings.get('consolidate_topics', False)
+        self.consolidate_topics = consolidate_topics
+
+        # Load synonyms from JSON file instead of hardcoded dict
+        self.synonyms = self.country_config.load_synonyms(self.country_code)
+
         self.semantic_df = None
         self.taxonomy_df = None
         self.taxonomy_lookup = []
@@ -235,14 +279,92 @@ class TaxonomyMatcher:
             if (idx + 1) % 50 == 0:
                 print(f"  Processed {idx + 1}/{total_urls} URLs...")
         
-        print(f"\n✅ Matching complete!")
+        print(f"\nMatching complete!")
         print(f"  URLs with matches: {urls_with_matches}/{total_urls} ({urls_with_matches/total_urls*100:.1f}%)")
         print(f"  Unmapped URLs: {len(unmapped_urls)}/{total_urls} ({len(unmapped_urls)/total_urls*100:.1f}%)")
         print(f"  Total output rows: {len(results)}")
         print(f"  Average matches per URL: {len(results)/total_urls:.2f}")
         
-        return pd.DataFrame(results)
-    
+        results_df = pd.DataFrame(results)
+
+        # Apply consolidation if enabled
+        if self.consolidate_topics:
+            print("\n  Applying topic consolidation...")
+            results_df = self.consolidate_results(results_df)
+
+        return results_df
+
+    def consolidate_results(self, results_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Consolidate multiple topic matches into single row per URL-Segment group.
+
+        Args:
+            results_df: DataFrame in one-row-per-topic format
+
+        Returns:
+            DataFrame with topics as columns (Topic_1, Topic_2, ...)
+        """
+        # Handle unmapped URLs separately
+        unmapped = results_df[results_df['Domain'] == 'UNMAPPED'].copy()
+        mapped = results_df[results_df['Domain'] != 'UNMAPPED'].copy()
+
+        if len(mapped) == 0:
+            return unmapped
+
+        # Group by (URL, Product, Domain, Segment)
+        grouped = mapped.groupby(['URL', 'Product', 'Domain', 'Segment'],
+                                dropna=False, sort=False)
+
+        consolidated_rows = []
+        max_topics = 0
+
+        for (url, product, domain, segment), group in grouped:
+            topics = group['Topic'].tolist()  # Preserves discovery order
+
+            # Filter out auto-added segment topics (segment name should not appear as topic)
+            topics = [t for t in topics if t != segment]
+
+            # Skip rows with no actual topics (only had segment-as-topic)
+            if not topics:
+                continue
+
+            max_topics = max(max_topics, len(topics))
+
+            row = {
+                'URL': url,
+                'Product': product,
+                'Domain': domain,
+                'Segment': segment
+            }
+
+            # Add topics as Topic_1, Topic_2, etc.
+            for i, topic in enumerate(topics, start=1):
+                row[f'Topic_{i}'] = topic
+
+            consolidated_rows.append(row)
+
+        consolidated_df = pd.DataFrame(consolidated_rows)
+
+        # Ensure all topic columns exist (fill missing with empty string)
+        for i in range(1, max_topics + 1):
+            col_name = f'Topic_{i}'
+            if col_name not in consolidated_df.columns:
+                consolidated_df[col_name] = ''
+
+        # Fill NaN with empty strings for cleaner Excel output
+        consolidated_df = consolidated_df.fillna('')
+
+        # Re-add unmapped URLs with empty topic columns
+        if len(unmapped) > 0:
+            for i in range(1, max_topics + 1):
+                unmapped[f'Topic_{i}'] = ''
+            unmapped = unmapped.drop('Topic', axis=1)
+            consolidated_df = pd.concat([consolidated_df, unmapped], ignore_index=True)
+
+        print(f"  Consolidated to {len(consolidated_df)} rows with up to {max_topics} topics per row")
+
+        return consolidated_df
+
     def save_output(self, results_df: pd.DataFrame):
         """
         Save results to Excel file.
@@ -252,7 +374,7 @@ class TaxonomyMatcher:
         """
         print(f"\nSaving results to {self.output_file}...")
         results_df.to_excel(self.output_file, index=False)
-        print(f"âœ… Output saved successfully!")
+        print(f"Output saved successfully!")
         print(f"  File: {os.path.abspath(self.output_file)}")
         
         # Show unmapped count in output
@@ -264,16 +386,25 @@ class TaxonomyMatcher:
     def run(self):
         """Execute the complete matching workflow."""
         print("=" * 60)
-        print("NL Taxonomy Mapper V2")
+        print(f"NL Taxonomy Mapper V3 - Country: {self.country_code}")
         print("=" * 60)
-        
+
+        # Print configuration details
+        country_info = next(c for c in self.country_config.get_available_countries()
+                           if c['code'] == self.country_code)
+        print(f"Country: {country_info['name']} ({country_info['language']})")
+        print(f"Threshold: {self.similarity_threshold}%")
+        print(f"Synonyms loaded: {len(self.synonyms)} terms")
+        print("=" * 60)
+
         self.load_data()
         self.build_taxonomy_lookup()
         results_df = self.process_matching()
         self.save_output(results_df)
-        
+
         print("\n" + "=" * 60)
         print("Process completed successfully!")
+        print(f"Output saved to: {self.output_file}")
         print("=" * 60)
 
 
@@ -323,23 +454,75 @@ def get_threshold_from_user() -> int:
 
 
 def main():
-    """Main entry point."""
-    print("\n" + "=" * 60)
-    print("           NL TAXONOMY MAPPER V2 - SETUP")
-    print("=" * 60)
-    
-    # Get threshold from user
-    threshold = get_threshold_from_user()
-    
-    # Initialize and run the matcher
-    matcher = TaxonomyMatcher(
-        semantic_file='semantic_carriers_list.xlsx',
-        taxonomy_file='NL Taxonomy V2.xlsx',
-        output_file='taxonomy_match.xlsx',
-        similarity_threshold=threshold
+    """Main entry point with CLI argument support."""
+    parser = argparse.ArgumentParser(
+        description='NL Taxonomy Mapper V3 - Multi-Country Support'
     )
-    
-    matcher.run()
+    parser.add_argument(
+        '-c', '--country',
+        type=str,
+        help='Country code (NL, SE, BE, etc.)',
+        default=None
+    )
+    parser.add_argument(
+        '-t', '--threshold',
+        type=int,
+        help='Similarity threshold (50-100)',
+        default=None
+    )
+    parser.add_argument(
+        '--semantic-file',
+        type=str,
+        help='Path to semantic carriers file (overrides config)',
+        default=None
+    )
+    parser.add_argument(
+        '--taxonomy-file',
+        type=str,
+        help='Path to taxonomy file (overrides config)',
+        default=None
+    )
+    parser.add_argument(
+        '-o', '--output',
+        type=str,
+        help='Output filename (country code auto-appended)',
+        default=None
+    )
+    parser.add_argument(
+        '-ct', '--consolidate-topics',
+        action='store_true',
+        help='Consolidate multiple topics into columns (Topic_1, Topic_2, ...)',
+        default=None
+    )
+
+    args = parser.parse_args()
+
+    print("\n" + "=" * 60)
+    print("           NL TAXONOMY MAPPER V3 - SETUP")
+    print("=" * 60)
+
+    # Get threshold (CLI arg takes precedence, otherwise prompt)
+    threshold = args.threshold
+    if threshold is None:
+        threshold = get_threshold_from_user()
+
+    # Initialize and run the matcher
+    try:
+        matcher = TaxonomyMatcher(
+            country_code=args.country,
+            semantic_file=args.semantic_file,
+            taxonomy_file=args.taxonomy_file,
+            output_file=args.output,
+            similarity_threshold=threshold,
+            consolidate_topics=args.consolidate_topics
+        )
+
+        matcher.run()
+
+    except Exception as e:
+        print(f"\nâŒ Error: {e}")
+        print("\nFor help, run: python taxonomy_matcher.py --help")
+        exit(1)
 
 
 if __name__ == "__main__":

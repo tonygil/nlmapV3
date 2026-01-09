@@ -1,0 +1,14 @@
+{
+  "description": "Belgian synonyms (Dutch/French) for BE Taxonomy Mapper",
+  "language": "Dutch/French",
+  "version": "1.0",
+  "synonyms": {
+    "bankzaken": ["bank", "banque", "banken"],
+    "facturatie": ["facturen", "factuur", "facturering", "facturation", "facture"],
+    "btw": ["belasting", "tva", "taxe"],
+    "betalen": ["betaling", "betalingen", "paiement", "payer"],
+    "klanten": ["kund", "client", "clients"],
+    "leveranciers": ["leverancier", "fournisseur", "fournisseurs"],
+    "boekhouding": ["comptabilité", "comptable"]
+  }
+}

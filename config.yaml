@@ -1,0 +1,78 @@
+# NL Taxonomy Mapper V3 - Multi-Country Configuration
+# Version: 3.0
+
+# Default country (used if not specified via GUI or CLI)
+default_country: "NL"
+
+# Country Registry
+# Add new countries here without code changes
+countries:
+  NL:
+    name: "Netherlands"
+    language: "Dutch"
+    code: "NL"
+    enabled: true
+    # Relative paths from countries/ directory
+    files:
+      semantic_carriers: "semantic_carriers_list.xlsx"
+      taxonomy: "taxonomy.xlsx"
+      synonyms: "synonyms.json"
+    # Default settings for this country
+    settings:
+      similarity_threshold: 80
+      description: "Dutch accounting software taxonomy for Sitecore"
+
+  SE:
+    name: "Sweden"
+    language: "Swedish"
+    code: "SE"
+    enabled: true
+    files:
+      semantic_carriers: "semantic_carriers_list.xlsx"
+      taxonomy: "taxonomy.xlsx"
+      synonyms: "synonyms.json"
+    settings:
+      similarity_threshold: 80
+      description: "Swedish accounting software taxonomy"
+
+  BE:
+    name: "Belgium"
+    language: "Dutch/French"
+    code: "BE"
+    enabled: true
+    files:
+      semantic_carriers: "semantic_carriers_list.xlsx"
+      taxonomy: "taxonomy.xlsx"
+      synonyms: "synonyms.json"
+    settings:
+      similarity_threshold: 80
+      description: "Belgian accounting software taxonomy"
+
+  GB:
+    name: "United Kingdom"
+    language: "English"
+    code: "GB"
+    enabled: true
+    files:
+      semantic_carriers: "semantic_carriers_list.xlsx"
+      taxonomy: "taxonomy.xlsx"
+      synonyms: "synonyms.json"
+    settings:
+      similarity_threshold: 80
+      description: "UK accounting software taxonomy"
+
+# Global settings (apply to all countries unless overridden)
+global_settings:
+  enable_deduplication: true
+  progress_update_interval: 50
+  include_similarity_scores: false
+  sort_output_by_url: true
+  consolidate_topics: false  # Default to one-row-per-topic (backward compatible)
+  topic_column_prefix: "Topic_"  # Column naming pattern for consolidated view
+
+# Backward compatibility
+backward_compatibility:
+  # If true, checks root directory for legacy files when country is NL
+  check_root_for_legacy: true
+  legacy_semantic_file: "semantic_carriers_list.xlsx"
+  legacy_taxonomy_file: "NL Taxonomy V2.xlsx"
