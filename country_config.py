@@ -6,23 +6,62 @@ Handles loading and validation of country-specific settings
 import yaml
 import json
 import os
+import sys
 from typing import Dict, List, Optional
 from pathlib import Path
+
+
+def get_application_path() -> Path:
+    """
+    Get the application root path, handling both normal Python and PyInstaller exe.
+
+    Search order for config.yaml:
+    1. PyInstaller bundle (sys._MEIPASS) - for bundled data files
+    2. Next to the exe (sys.executable.parent) - for external config
+    3. Script directory - for normal Python execution
+
+    Returns:
+        Path to the application root directory
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as compiled exe
+        # First check if config exists in PyInstaller's bundled data
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass:
+            bundled_path = Path(meipass)
+            if (bundled_path / 'config.yaml').exists():
+                return bundled_path
+
+        # Otherwise check next to the exe
+        exe_dir = Path(sys.executable).parent
+        if (exe_dir / 'config.yaml').exists():
+            return exe_dir
+
+        # Fallback to exe directory even if config not found (will error later with clear message)
+        return exe_dir
+    else:
+        # Running as normal Python script
+        return Path(__file__).parent
 
 
 class CountryConfig:
     """Manages country-specific configuration and file paths."""
 
-    def __init__(self, config_file: str = 'config.yaml'):
+    def __init__(self, config_file: str = None):
         """
         Initialize configuration loader.
 
         Args:
-            config_file: Path to YAML config file
+            config_file: Path to YAML config file (default: config.yaml in app directory)
         """
-        self.config_file = config_file
+        self.project_root = get_application_path()
+
+        if config_file is None:
+            self.config_file = self.project_root / 'config.yaml'
+        else:
+            self.config_file = Path(config_file)
+
         self.config = self._load_config()
-        self.project_root = Path(__file__).parent
 
     def _load_config(self) -> dict:
         """Load YAML configuration file."""
