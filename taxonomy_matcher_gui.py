@@ -9,9 +9,11 @@ import threading
 import os
 import copy
 import json
+import tempfile
 from datetime import datetime
 from taxonomy_matcher import TaxonomyMatcher
 from country_config import CountryConfig
+from post_processor import PostProcessor, URL_EXCLUSION_PATTERNS
 import sys
 import pandas as pd
 
@@ -249,8 +251,10 @@ class TaxonomyMapperGUI:
         """Initialize the GUI application."""
         self.root = root
         self.root.title("NL Taxonomy Mapper V3")
-        self.root.geometry("1000x850")  # Increased size for better fit
+        self.root.geometry("1000x850")  # Fallback size
         self.root.resizable(True, True)
+        # Start maximized on Windows
+        self.root.state('zoomed')
         
         # Modern color scheme
         self.colors = {
@@ -272,6 +276,7 @@ class TaxonomyMapperGUI:
         self.taxonomy_file = tk.StringVar()
         self.output_file = tk.StringVar(value='taxonomy_match.xlsx')
         self.threshold = tk.IntVar(value=80)
+        self.top_n = tk.IntVar(value=3)
         self.is_processing = False
 
         # Validation UI components
@@ -392,8 +397,45 @@ class TaxonomyMapperGUI:
             file_type="taxonomy"
         )
 
+        # Custom Taxonomy indicator and Reset button (hidden by default)
+        self.custom_taxonomy_frame = tk.Frame(
+            input_card,
+            bg='#e0f2fe',  # Light blue background
+            relief='solid',
+            bd=1
+        )
+
+        custom_tax_content = tk.Frame(self.custom_taxonomy_frame, bg='#e0f2fe')
+        custom_tax_content.pack(fill='x', padx=15, pady=8)
+
+        self.custom_taxonomy_label = tk.Label(
+            custom_tax_content,
+            text="📁 Using custom taxonomy file",
+            font=('Segoe UI', 9),
+            bg='#e0f2fe',
+            fg='#0369a1'  # Dark blue text
+        )
+        self.custom_taxonomy_label.pack(side='left', padx=(0, 15))
+
+        self.reset_taxonomy_btn = tk.Button(
+            custom_tax_content,
+            text="Reset to Default",
+            command=self.reset_taxonomy_to_default,
+            font=('Segoe UI', 9),
+            bg='#0ea5e9',  # Blue button
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=3,
+            cursor='hand2'
+        )
+        self.reset_taxonomy_btn.pack(side='left')
+
         # Bind country change to auto-populate file paths
         self.selected_country.trace_add('write', self.on_country_changed)
+
+        # Bind taxonomy file change to update custom indicator
+        self.taxonomy_file.trace_add('write', lambda *args: self.update_custom_taxonomy_indicator())
 
         # Swap Warning UI (hidden by default)
         self.swap_warning_frame = tk.Frame(
@@ -491,6 +533,49 @@ class TaxonomyMapperGUI:
             fg=self.colors['text_light']
         ).pack(padx=20, pady=(0, 8))
 
+        # Top N results per URL
+        top_n_frame = tk.Frame(settings_card, bg=self.colors['card'])
+        top_n_frame.pack(fill='x', padx=20, pady=(10, 0))
+
+        tk.Label(
+            top_n_frame,
+            text="Top results per URL:",
+            font=('Segoe UI', 10),
+            bg=self.colors['card'],
+            fg=self.colors['text']
+        ).pack(side='left')
+
+        self.top_n_label = tk.Label(
+            top_n_frame,
+            text=str(self.top_n.get()),
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['primary']
+        )
+        self.top_n_label.pack(side='right')
+
+        top_n_slider = tk.Scale(
+            settings_card,
+            from_=1,
+            to=10,
+            orient='horizontal',
+            variable=self.top_n,
+            command=self.update_top_n,
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            highlightthickness=0,
+            troughcolor=self.colors['border']
+        )
+        top_n_slider.pack(fill='x', padx=20, pady=(0, 10))
+
+        tk.Label(
+            settings_card,
+            text=" Limits output to N best-matching rows per URL",
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        ).pack(padx=20, pady=(0, 8))
+
         # Topic Consolidation Option
         # Output is always consolidated (one row per URL-Segment with Topic_1, Topic_2, etc.)
         tk.Label(
@@ -500,6 +585,21 @@ class TaxonomyMapperGUI:
             bg=self.colors['card'],
             fg=self.colors['text_light']
         ).pack(padx=20, pady=(5, 8))
+
+        # Summary Column Option
+        self.use_summary = tk.BooleanVar(value=False)
+        summary_check = tk.Checkbutton(
+            settings_card,
+            text="Use Summary column for additional keywords (crawler output)",
+            variable=self.use_summary,
+            font=('Segoe UI', 10),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            selectcolor=self.colors['card'],
+            activebackground=self.colors['card'],
+            cursor='hand2'
+        )
+        summary_check.pack(anchor='w', padx=20, pady=(5, 10))
 
         # Buttons and Progress Bar
         btn_frame = tk.Frame(frame, bg=self.colors['background'])
@@ -532,6 +632,51 @@ class TaxonomyMapperGUI:
             cursor='hand2'
         )
         reset_btn.pack(side='left', padx=5)
+
+        self.postprocess_btn = tk.Button(
+            btn_frame,
+            text="🧹 Clean Output",
+            command=self.run_post_processing,
+            font=('Segoe UI', 10),
+            bg='#8b5cf6',
+            fg='white',
+            relief='flat',
+            padx=20,
+            pady=12,
+            cursor='hand2'
+        )
+        self.postprocess_btn.pack(side='left', padx=5)
+        ToolTip(self.postprocess_btn, "Post-process the output file to remove noise and rank issues")
+
+        self.url_pattern_btn = tk.Button(
+            btn_frame,
+            text="🔗 Filter URL Patterns",
+            command=self.show_url_pattern_dialog,
+            font=('Segoe UI', 10),
+            bg='#f59e0b',
+            fg='white',
+            relief='flat',
+            padx=20,
+            pady=12,
+            cursor='hand2'
+        )
+        self.url_pattern_btn.pack(side='left', padx=5)
+        ToolTip(self.url_pattern_btn, "Preview and filter URLs matching exclusion patterns (Special pages, redirects, etc.)")
+
+        self.remap_btn = tk.Button(
+            btn_frame,
+            text="🔄 Remap URLs",
+            command=self.show_remap_dialog,
+            font=('Segoe UI', 10),
+            bg='#06b6d4',
+            fg='white',
+            relief='flat',
+            padx=20,
+            pady=12,
+            cursor='hand2'
+        )
+        self.remap_btn.pack(side='left', padx=5)
+        ToolTip(self.remap_btn, "Re-run matching on filtered URLs against a new taxonomy file")
 
         # Modern Progress Bar Section
         progress_container = tk.Frame(btn_frame, bg=self.colors['background'])
@@ -618,89 +763,391 @@ class TaxonomyMapperGUI:
         ).pack(side='left', padx=5)
         
     def create_reports_tab(self, notebook):
-        """Create reports tab for analysis tools."""
+        """Create reports tab for analysis tools with scrollable layout."""
         frame = tk.Frame(notebook, bg=self.colors['background'])
         notebook.add(frame, text='   Reports  ')
 
-        # Main card for reports
-        card = self.create_card(frame, " Analysis Reports")
-        card.pack(fill='both', expand=True, padx=10, pady=10)
+        # Create scrollable container
+        canvas = tk.Canvas(frame, bg=self.colors['background'], highlightthickness=0)
+        scrollbar = tk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg=self.colors['background'])
 
-        content = tk.Frame(card, bg=self.colors['card'])
-        content.pack(fill='both', expand=True, padx=30, pady=20)
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
 
-        # Synonym Report Section
-        section = tk.Frame(content, bg=self.colors['card'])
-        section.pack(fill='x', pady=10, anchor='w')
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Enable mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        # Pack scrollbar and canvas
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        # Main content frame inside scrollable area
+        main_content = tk.Frame(scrollable_frame, bg=self.colors['background'])
+        main_content.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # ============ QUICK REPORTS ROW (Synonym, Quality, Unmapped) ============
+        quick_reports_label = tk.Label(
+            main_content,
+            text="Quick Reports",
+            font=('Segoe UI', 12, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        )
+        quick_reports_label.pack(anchor='w', pady=(0, 10))
+
+        # Three-column frame for quick reports
+        quick_row = tk.Frame(main_content, bg=self.colors['background'])
+        quick_row.pack(fill='x', pady=(0, 15))
+
+        # Configure columns to expand equally
+        quick_row.columnconfigure(0, weight=1)
+        quick_row.columnconfigure(1, weight=1)
+        quick_row.columnconfigure(2, weight=1)
+
+        # --- Synonym Report Card ---
+        synonym_card = tk.Frame(quick_row, bg=self.colors['card'], relief='solid', bd=1)
+        synonym_card.grid(row=0, column=0, sticky='nsew', padx=(0, 5), pady=5)
 
         tk.Label(
-            section,
-            text="Proposed Synonyms Report",
-            font=('Segoe UI', 11, 'bold'),
+            synonym_card,
+            text="Proposed Synonyms",
+            font=('Segoe UI', 10, 'bold'),
             bg=self.colors['card'],
             fg=self.colors['text']
-        ).pack(anchor='w')
+        ).pack(anchor='w', padx=10, pady=(10, 5))
 
         tk.Label(
-            section,
-            text="Compares semantic keywords with taxonomy topics to propose new synonym mappings.\n"
-                 "Generates an Excel report with 4 sheets: All Synonyms, HIGH Priority, Summary, Unmapped Keywords.",
+            synonym_card,
+            text="Compare keywords with topics\nto propose new synonyms",
+            font=('Segoe UI', 8),
+            bg=self.colors['card'],
+            fg=self.colors['text_light'],
+            justify='left'
+        ).pack(anchor='w', padx=10, pady=(0, 10))
+
+        self.synonym_report_btn = tk.Button(
+            synonym_card,
+            text="Generate",
+            command=self.generate_synonym_report,
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=5,
+            cursor='hand2'
+        )
+        self.synonym_report_btn.pack(anchor='w', padx=10, pady=(0, 5))
+
+        self.report_status_label = tk.Label(
+            synonym_card,
+            text="",
+            font=('Segoe UI', 8),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        )
+        self.report_status_label.pack(anchor='w', padx=10, pady=(0, 10))
+
+        # --- Match Quality Report Card ---
+        quality_card = tk.Frame(quick_row, bg=self.colors['card'], relief='solid', bd=1)
+        quality_card.grid(row=0, column=1, sticky='nsew', padx=5, pady=5)
+
+        tk.Label(
+            quality_card,
+            text="Match Quality",
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text']
+        ).pack(anchor='w', padx=10, pady=(10, 5))
+
+        tk.Label(
+            quality_card,
+            text="Analyze scores, rankings\nand relevance categories",
+            font=('Segoe UI', 8),
+            bg=self.colors['card'],
+            fg=self.colors['text_light'],
+            justify='left'
+        ).pack(anchor='w', padx=10, pady=(0, 5))
+
+        # Top N input
+        topn_row = tk.Frame(quality_card, bg=self.colors['card'])
+        topn_row.pack(anchor='w', padx=10, pady=(0, 10))
+        tk.Label(topn_row, text="Top N:", font=('Segoe UI', 8), bg=self.colors['card']).pack(side='left')
+        self.top_n_var = tk.StringVar(value="3")
+        tk.Entry(topn_row, textvariable=self.top_n_var, font=('Segoe UI', 8), width=4).pack(side='left', padx=5)
+
+        self.quality_report_btn = tk.Button(
+            quality_card,
+            text="Generate",
+            command=self.generate_quality_report,
+            font=('Segoe UI', 9, 'bold'),
+            bg='#9b59b6',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=5,
+            cursor='hand2'
+        )
+        self.quality_report_btn.pack(anchor='w', padx=10, pady=(0, 5))
+
+        self.quality_report_status_label = tk.Label(
+            quality_card,
+            text="",
+            font=('Segoe UI', 8),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        )
+        self.quality_report_status_label.pack(anchor='w', padx=10, pady=(0, 10))
+
+        # --- Unmapped Reasons Report Card ---
+        unmapped_card = tk.Frame(quick_row, bg=self.colors['card'], relief='solid', bd=1)
+        unmapped_card.grid(row=0, column=2, sticky='nsew', padx=(5, 0), pady=5)
+
+        tk.Label(
+            unmapped_card,
+            text="Unmapped Reasons",
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text']
+        ).pack(anchor='w', padx=10, pady=(10, 5))
+
+        tk.Label(
+            unmapped_card,
+            text="Diagnose why URLs\nfailed to match",
+            font=('Segoe UI', 8),
+            bg=self.colors['card'],
+            fg=self.colors['text_light'],
+            justify='left'
+        ).pack(anchor='w', padx=10, pady=(0, 10))
+
+        self.unmapped_report_btn = tk.Button(
+            unmapped_card,
+            text="Generate",
+            command=self.generate_unmapped_report,
+            font=('Segoe UI', 9, 'bold'),
+            bg='#e67e22',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=5,
+            cursor='hand2'
+        )
+        self.unmapped_report_btn.pack(anchor='w', padx=10, pady=(0, 5))
+
+        self.unmapped_report_status_label = tk.Label(
+            unmapped_card,
+            text="",
+            font=('Segoe UI', 8),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        )
+        self.unmapped_report_status_label.pack(anchor='w', padx=10, pady=(0, 10))
+
+        # ============ TOPIC RECOMMENDATIONS REPORT (Full Width) ============
+        tk.Label(
+            main_content,
+            text="Topic Recommendations Report",
+            font=('Segoe UI', 12, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(anchor='w', pady=(15, 10))
+
+        topic_rec_card = tk.Frame(main_content, bg=self.colors['card'], relief='solid', bd=1)
+        topic_rec_card.pack(fill='x', pady=(0, 10))
+
+        topic_rec_content = tk.Frame(topic_rec_card, bg=self.colors['card'])
+        topic_rec_content.pack(fill='x', padx=15, pady=15)
+
+        tk.Label(
+            topic_rec_content,
+            text="Analyzes match results against taxonomy to identify gaps and recommend new topics.\n"
+                 "Generates 8-sheet Excel: Summary, Quality Issues, Gaps, Recommendations, New Topics, URLs, Impact, Topics to Add.",
             font=('Segoe UI', 9),
             bg=self.colors['card'],
             fg=self.colors['text_light'],
             justify='left'
-        ).pack(anchor='w', pady=(5, 15))
+        ).pack(anchor='w', pady=(0, 10))
 
-        # Button row
-        btn_row = tk.Frame(section, bg=self.colors['card'])
-        btn_row.pack(anchor='w')
+        # File inputs in a grid
+        inputs_grid = tk.Frame(topic_rec_content, bg=self.colors['card'])
+        inputs_grid.pack(fill='x')
 
-        self.synonym_report_btn = tk.Button(
+        # Row 1: Match File and Taxonomy File
+        row1 = tk.Frame(inputs_grid, bg=self.colors['card'])
+        row1.pack(fill='x', pady=3)
+
+        tk.Label(row1, text="Match File:", font=('Segoe UI', 9), bg=self.colors['card'], width=12, anchor='w').pack(side='left')
+        self.topic_rec_match_file = tk.StringVar()
+        tk.Entry(row1, textvariable=self.topic_rec_match_file, font=('Segoe UI', 8), width=35).pack(side='left', padx=(0, 5))
+        tk.Button(row1, text="Browse", command=lambda: self._browse_topic_rec_file(self.topic_rec_match_file, "Select Match File"),
+                  font=('Segoe UI', 8), bg=self.colors['primary'], fg='white', relief='flat', padx=8).pack(side='left')
+
+        tk.Label(row1, text="  Taxonomy:", font=('Segoe UI', 9), bg=self.colors['card'], anchor='w').pack(side='left', padx=(15, 0))
+        self.topic_rec_taxonomy_file = tk.StringVar()
+        tk.Entry(row1, textvariable=self.topic_rec_taxonomy_file, font=('Segoe UI', 8), width=35).pack(side='left', padx=(0, 5))
+        tk.Button(row1, text="Browse", command=lambda: self._browse_topic_rec_file(self.topic_rec_taxonomy_file, "Select Taxonomy"),
+                  font=('Segoe UI', 8), bg=self.colors['primary'], fg='white', relief='flat', padx=8).pack(side='left')
+
+        # Row 2: Document Source and Output File
+        row2 = tk.Frame(inputs_grid, bg=self.colors['card'])
+        row2.pack(fill='x', pady=3)
+
+        tk.Label(row2, text="Doc Source:", font=('Segoe UI', 9), bg=self.colors['card'], width=12, anchor='w').pack(side='left')
+        self.topic_rec_doc_source = tk.StringVar()
+        tk.Entry(row2, textvariable=self.topic_rec_doc_source, font=('Segoe UI', 8), width=35).pack(side='left', padx=(0, 5))
+        tk.Button(row2, text="Browse", command=lambda: self._browse_topic_rec_file(self.topic_rec_doc_source, "Select Document Source"),
+                  font=('Segoe UI', 8), bg=self.colors['primary'], fg='white', relief='flat', padx=8).pack(side='left')
+        tk.Button(row2, text="Clear", command=lambda: self.topic_rec_doc_source.set(''),
+                  font=('Segoe UI', 8), bg='#95a5a6', fg='white', relief='flat', padx=6).pack(side='left', padx=3)
+
+        tk.Label(row2, text="  Output:", font=('Segoe UI', 9), bg=self.colors['card'], anchor='w').pack(side='left', padx=(5, 0))
+        self.topic_rec_output_file = tk.StringVar(value='TOPIC_RECOMMENDATIONS.xlsx')
+        tk.Entry(row2, textvariable=self.topic_rec_output_file, font=('Segoe UI', 8), width=35).pack(side='left', padx=(0, 5))
+        tk.Button(row2, text="Browse", command=self._browse_topic_rec_output,
+                  font=('Segoe UI', 8), bg=self.colors['primary'], fg='white', relief='flat', padx=8).pack(side='left')
+
+        # Generate button row
+        btn_row = tk.Frame(topic_rec_content, bg=self.colors['card'])
+        btn_row.pack(anchor='w', pady=(15, 0))
+
+        self.topic_rec_report_btn = tk.Button(
             btn_row,
-            text="Generate Synonym Report",
-            command=self.generate_synonym_report,
+            text="Generate Topic Recommendations Report",
+            command=self.generate_topic_recommendations_report,
             font=('Segoe UI', 10, 'bold'),
-            bg=self.colors['primary'],
+            bg='#27ae60',
             fg='white',
             relief='flat',
             padx=20,
             pady=8,
             cursor='hand2'
         )
-        self.synonym_report_btn.pack(side='left')
+        self.topic_rec_report_btn.pack(side='left')
 
-        # Status label
-        self.report_status_label = tk.Label(
+        self.topic_rec_status_label = tk.Label(
             btn_row,
             text="",
             font=('Segoe UI', 9),
             bg=self.colors['card'],
             fg=self.colors['text_light']
         )
-        self.report_status_label.pack(side='left', padx=15)
+        self.topic_rec_status_label.pack(side='left', padx=15)
 
-        # Separator
-        tk.Frame(content, bg=self.colors['border'], height=1).pack(fill='x', pady=20)
+        # ============ GAP ANALYSIS REPORT (Full Width) ============
+        tk.Label(
+            main_content,
+            text="Taxonomy Gap Analysis Report",
+            font=('Segoe UI', 12, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(anchor='w', pady=(15, 10))
 
-        # Info section
-        info_frame = tk.Frame(content, bg=self.colors['card'])
-        info_frame.pack(fill='x', anchor='w')
+        gap_analysis_card = tk.Frame(main_content, bg=self.colors['card'], relief='solid', bd=1)
+        gap_analysis_card.pack(fill='x', pady=(0, 10))
+
+        gap_analysis_content = tk.Frame(gap_analysis_card, bg=self.colors['card'])
+        gap_analysis_content.pack(fill='x', padx=15, pady=15)
+
+        tk.Label(
+            gap_analysis_content,
+            text="Comprehensive analysis of taxonomy coverage: phantom topics, never-matched topics, synonym recommendations.\n"
+                 "Generates 7-sheet Excel: Executive Summary, Phantom Topics, Never-Matched, Comparison, Synonym Recs, Product Breakdown, Actions.",
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text_light'],
+            justify='left'
+        ).pack(anchor='w', pady=(0, 10))
+
+        # File selection rows
+        gap_row1 = tk.Frame(gap_analysis_content, bg=self.colors['card'])
+        gap_row1.pack(fill='x', pady=2)
+        tk.Label(gap_row1, text="Match File:", font=('Segoe UI', 9), bg=self.colors['card'], width=12, anchor='w').pack(side='left')
+        self.gap_analysis_match_file = tk.StringVar()
+        tk.Entry(gap_row1, textvariable=self.gap_analysis_match_file, font=('Segoe UI', 8), width=50).pack(side='left', padx=(0, 5))
+        tk.Button(gap_row1, text="Browse", command=lambda: self._browse_gap_analysis_file(self.gap_analysis_match_file, "Select Match File"),
+                  font=('Segoe UI', 8), bg=self.colors['primary'], fg='white', relief='flat', padx=8).pack(side='left')
+
+        gap_row2 = tk.Frame(gap_analysis_content, bg=self.colors['card'])
+        gap_row2.pack(fill='x', pady=2)
+        tk.Label(gap_row2, text="Taxonomy:", font=('Segoe UI', 9), bg=self.colors['card'], width=12, anchor='w').pack(side='left')
+        self.gap_analysis_taxonomy_file = tk.StringVar()
+        tk.Entry(gap_row2, textvariable=self.gap_analysis_taxonomy_file, font=('Segoe UI', 8), width=50).pack(side='left', padx=(0, 5))
+        tk.Button(gap_row2, text="Browse", command=lambda: self._browse_gap_analysis_file(self.gap_analysis_taxonomy_file, "Select Taxonomy File"),
+                  font=('Segoe UI', 8), bg=self.colors['primary'], fg='white', relief='flat', padx=8).pack(side='left')
+
+        gap_row3 = tk.Frame(gap_analysis_content, bg=self.colors['card'])
+        gap_row3.pack(fill='x', pady=2)
+        tk.Label(gap_row3, text="Semantic:", font=('Segoe UI', 9), bg=self.colors['card'], width=12, anchor='w').pack(side='left')
+        self.gap_analysis_semantic_file = tk.StringVar()
+        tk.Entry(gap_row3, textvariable=self.gap_analysis_semantic_file, font=('Segoe UI', 8), width=35).pack(side='left', padx=(0, 5))
+        tk.Button(gap_row3, text="Browse", command=lambda: self._browse_gap_analysis_file(self.gap_analysis_semantic_file, "Select Semantic File"),
+                  font=('Segoe UI', 8), bg=self.colors['primary'], fg='white', relief='flat', padx=8).pack(side='left')
+        tk.Button(gap_row3, text="Clear", command=lambda: self.gap_analysis_semantic_file.set(''),
+                  font=('Segoe UI', 8), bg='#95a5a6', fg='white', relief='flat', padx=6).pack(side='left', padx=3)
+        tk.Label(gap_row3, text="(optional)", font=('Segoe UI', 8, 'italic'), bg=self.colors['card'], fg=self.colors['text_light']).pack(side='left', padx=3)
+
+        gap_row4 = tk.Frame(gap_analysis_content, bg=self.colors['card'])
+        gap_row4.pack(fill='x', pady=2)
+        tk.Label(gap_row4, text="Output:", font=('Segoe UI', 9), bg=self.colors['card'], width=12, anchor='w').pack(side='left')
+        self.gap_analysis_output_file = tk.StringVar(value='TAXONOMY_GAP_ANALYSIS_REPORT.xlsx')
+        tk.Entry(gap_row4, textvariable=self.gap_analysis_output_file, font=('Segoe UI', 8), width=35).pack(side='left', padx=(0, 5))
+        tk.Button(gap_row4, text="Browse", command=self._browse_gap_analysis_output,
+                  font=('Segoe UI', 8), bg=self.colors['primary'], fg='white', relief='flat', padx=8).pack(side='left')
+
+        # Generate button row
+        gap_btn_row = tk.Frame(gap_analysis_content, bg=self.colors['card'])
+        gap_btn_row.pack(anchor='w', pady=(15, 0))
+
+        self.gap_analysis_report_btn = tk.Button(
+            gap_btn_row,
+            text="Generate Gap Analysis Report",
+            command=self.generate_gap_analysis_report,
+            font=('Segoe UI', 10, 'bold'),
+            bg='#8e44ad',
+            fg='white',
+            relief='flat',
+            padx=20,
+            pady=8,
+            cursor='hand2'
+        )
+        self.gap_analysis_report_btn.pack(side='left')
+
+        self.gap_analysis_status_label = tk.Label(
+            gap_btn_row,
+            text="",
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        )
+        self.gap_analysis_status_label.pack(side='left', padx=15)
+
+        # ============ REQUIREMENTS INFO ============
+        info_frame = tk.Frame(main_content, bg=self.colors['background'])
+        info_frame.pack(fill='x', anchor='w', pady=(15, 10))
 
         tk.Label(
             info_frame,
             text="Requirements:",
             font=('Segoe UI', 10, 'bold'),
-            bg=self.colors['card'],
+            bg=self.colors['background'],
             fg=self.colors['text']
         ).pack(anchor='w')
 
         tk.Label(
             info_frame,
-            text="- Select a Semantic Carriers file (URL Keywords) in Setup tab\n"
-                 "- Select a Taxonomy file in Setup tab\n"
-                 "- Click 'Generate Synonym Report' to analyze",
+            text="• Quick Reports: Select Semantic Carriers and Taxonomy files in Setup tab first\n"
+                 "• Topic Recommendations: Select files directly above (uses cleaned match output)\n"
+                 "• Gap Analysis: Select files above - identifies phantom topics, never-matched topics, and synonym suggestions",
             font=('Segoe UI', 9),
-            bg=self.colors['card'],
+            bg=self.colors['background'],
             fg=self.colors['text_light'],
             justify='left'
         ).pack(anchor='w', pady=(5, 0))
@@ -1041,13 +1488,74 @@ class TaxonomyMapperGUI:
 
             self.log(f"Switched to {self._get_country_display_name(country_code)}")
 
+            # Check if using custom taxonomy and show/hide indicator
+            self.update_custom_taxonomy_indicator()
+
         except Exception as e:
             self.log(f"Warning: Could not load files for {country_code}: {e}")
+
+    def update_custom_taxonomy_indicator(self):
+        """Show or hide the custom taxonomy indicator based on current file."""
+        country_code = self.selected_country.get()
+        current_taxonomy = self.taxonomy_file.get()
+
+        # Check if we have a last used taxonomy that differs from default
+        last_used = self.country_config.get_last_used_taxonomy(country_code)
+
+        # Get the default taxonomy path (without last_used override)
+        try:
+            country = self.country_config.config['countries'].get(country_code, {})
+            country_dir = self.country_config.project_root / 'countries' / country_code
+            default_taxonomy = str(country_dir / country.get('files', {}).get('taxonomy', 'taxonomy.xlsx'))
+        except Exception:
+            default_taxonomy = ''
+
+        # Show indicator if current file is not the default
+        is_custom = current_taxonomy and default_taxonomy and \
+                    os.path.normpath(current_taxonomy).lower() != os.path.normpath(default_taxonomy).lower()
+
+        if is_custom and hasattr(self, 'custom_taxonomy_frame'):
+            # Update label with file name
+            filename = os.path.basename(current_taxonomy)
+            self.custom_taxonomy_label.config(text=f"📁 Using: {filename}")
+            self.custom_taxonomy_frame.pack(fill='x', padx=20, pady=(0, 10))
+        elif hasattr(self, 'custom_taxonomy_frame'):
+            self.custom_taxonomy_frame.pack_forget()
+
+    def reset_taxonomy_to_default(self):
+        """Reset taxonomy file to the default for the current country."""
+        country_code = self.selected_country.get()
+
+        # Clear the last used taxonomy from config
+        if self.country_config.clear_last_used_taxonomy(country_code):
+            self.log(f"Cleared custom taxonomy for {country_code}")
+
+        # Get the default taxonomy path
+        try:
+            country = self.country_config.config['countries'].get(country_code, {})
+            country_dir = self.country_config.project_root / 'countries' / country_code
+            default_taxonomy = str(country_dir / country.get('files', {}).get('taxonomy', 'taxonomy.xlsx'))
+
+            if os.path.exists(default_taxonomy):
+                self.taxonomy_file.set(default_taxonomy)
+                self.log(f"Reset to default taxonomy: {os.path.basename(default_taxonomy)}")
+            else:
+                self.log(f"Warning: Default taxonomy file not found: {default_taxonomy}")
+
+        except Exception as e:
+            self.log(f"Error resetting taxonomy: {e}")
+
+        # Hide the custom indicator
+        self.update_custom_taxonomy_indicator()
 
     def update_threshold(self, value):
         """Update threshold label."""
         self.threshold_label.config(text=f"{int(float(value))}%")
-        
+
+    def update_top_n(self, value):
+        """Update top N label."""
+        self.top_n_label.config(text=str(int(float(value))))
+
     def log(self, message):
         """Add message to log."""
         timestamp = datetime.now().strftime('%H:%M:%S')
@@ -1158,7 +1666,9 @@ class TaxonomyMapperGUI:
                 taxonomy_file=self.taxonomy_file.get(),
                 output_file=self.output_file.get(),
                 similarity_threshold=self.threshold.get(),
-                consolidate_topics=True  # Always use consolidated output
+                consolidate_topics=True,  # Always use consolidated output
+                include_summary=self.use_summary.get(),  # Use Summary column if checked
+                top_n=self.top_n.get()
             )
             
             # Redirect print to log
@@ -1180,7 +1690,14 @@ class TaxonomyMapperGUI:
             self.log("=" * 50)
             self.log(" Completed successfully!")
             self.log("=" * 50)
-            
+
+            # Save last used taxonomy file to config (for next session)
+            taxonomy_path = self.taxonomy_file.get()
+            country_code = self.selected_country.get()
+            if taxonomy_path and country_code:
+                if self.country_config.save_last_used_taxonomy(country_code, taxonomy_path):
+                    self.log(f"Saved taxonomy file as default for {country_code}")
+
             self.root.after(0, lambda: messagebox.showinfo(
                 "Success",
                 f"Matching completed!\n\nOutput: {self.output_file.get()}"
@@ -1202,6 +1719,1166 @@ class TaxonomyMapperGUI:
         self.status_label.config(text="Ready")
 
         # Clear the status after 3 seconds
+        self.root.after(3000, lambda: self.processing_status.config(text=""))
+
+    # ==================== POST-PROCESSING METHODS ====================
+
+    def run_post_processing(self):
+        """Run post-processor on output file."""
+        # Allow user to pick file or use current output
+        output_path = self.output_file.get()
+        if not output_path or not os.path.exists(output_path):
+            output_path = filedialog.askopenfilename(
+                title="Select taxonomy match output file to clean",
+                filetypes=[("Excel files", "*.xlsx")]
+            )
+            if not output_path:
+                return
+
+        if self.is_processing:
+            messagebox.showwarning("Warning", "Already processing")
+            return
+
+        self.is_processing = True
+        self.postprocess_btn.config(state='disabled')
+        self.progress.start(10)
+        self.processing_status.config(text="🧹 Post-processing output...")
+        self.status_label.config(text="Post-processing...")
+
+        thread = threading.Thread(
+            target=self._postprocess_worker, args=(output_path,), daemon=True
+        )
+        thread.start()
+
+    def _postprocess_worker(self, input_path):
+        """Background worker for post-processing."""
+        try:
+            base, ext = os.path.splitext(input_path)
+            output_path = f"{base}_cleaned{ext}"
+
+            original_stdout = sys.stdout
+
+            class LogWriter:
+                def __init__(self, log_func):
+                    self.log_func = log_func
+                def write(self, text):
+                    if text.strip():
+                        self.log_func(text.strip())
+                def flush(self):
+                    pass
+
+            sys.stdout = LogWriter(self.log)
+
+            config = {
+                'max_rank': self.top_n.get(),  # Use the Top N slider value
+                'frequency_threshold': 0.20,
+                'remove_low_confidence': False,
+            }
+
+            pp = PostProcessor(config)
+            pp.load(input_path)
+            pp.run_all()
+            pp.print_stats()
+            pp.export(output_path)
+
+            sys.stdout = original_stdout
+
+            self.root.after(0, lambda: messagebox.showinfo(
+                "Post-Processing Complete",
+                f"Cleaned output saved to:\n{output_path}\n\n"
+                f"Rows before: {pp.stats.get('rows_before', '?')}\n"
+                f"Rows after: {pp.stats.get('rows_after', '?')}\n"
+                f"Removed: {pp.stats.get('rows_removed', '?')} ({pp.stats.get('pct_removed', 0):.1f}%)"
+            ))
+
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            self.log(f"Post-processing error: {str(e)}")
+            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+
+        finally:
+            self.root.after(0, self._postprocess_finish)
+
+    def _postprocess_finish(self):
+        """Finish post-processing."""
+        self.progress.stop()
+        self.processing_status.config(text="✓ Post-processing complete!")
+        self.postprocess_btn.config(state='normal')
+        self.is_processing = False
+        self.status_label.config(text="Ready")
+        self.root.after(3000, lambda: self.processing_status.config(text=""))
+
+    # ==================== URL PATTERN FILTER METHODS ====================
+
+    def show_url_pattern_dialog(self):
+        """Show URL pattern filter dialog with checkboxes and preview counts."""
+        # Always ask user to select file, but start in output directory if available
+        initial_dir = None
+        initial_file = None
+        current_output = self.output_file.get()
+        if current_output and os.path.exists(current_output):
+            initial_dir = os.path.dirname(current_output)
+            initial_file = os.path.basename(current_output)
+
+        output_path = filedialog.askopenfilename(
+            title="Select taxonomy match output file to filter",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialdir=initial_dir,
+            initialfile=initial_file
+        )
+        if not output_path:
+            return
+
+        if self.is_processing:
+            messagebox.showwarning("Warning", "Already processing")
+            return
+
+        # Show progress on main screen
+        self.is_processing = True
+        self.url_pattern_btn.config(state='disabled')
+        self.progress.start(10)
+        self.processing_status.config(text=f"🔍 Analyzing: {os.path.basename(output_path)}...")
+        self.status_label.config(text="Analyzing URL patterns...")
+        self.log(f"Loading file for URL pattern analysis: {output_path}")
+
+        # Load in background thread
+        def load_and_show():
+            try:
+                pp = PostProcessor()
+                pp.load(output_path)
+                preview = pp.preview_url_patterns()
+                row_count = len(pp.df)
+                # Show dialog on main thread
+                self.root.after(0, lambda: self._show_pattern_dialog_ui(output_path, preview, row_count))
+            except Exception as e:
+                self.root.after(0, lambda: self._pattern_load_error(str(e)))
+
+        thread = threading.Thread(target=load_and_show, daemon=True)
+        thread.start()
+
+    def _pattern_load_error(self, error_msg):
+        """Handle error loading file for pattern analysis."""
+        self.progress.stop()
+        self.processing_status.config(text="")
+        self.status_label.config(text="Ready")
+        self.url_pattern_btn.config(state='normal')
+        self.is_processing = False
+        messagebox.showerror("Error", f"Failed to load file: {error_msg}")
+
+    def _show_pattern_dialog_ui(self, output_path, preview, row_count):
+        """Show the pattern filter dialog after loading completes."""
+        # Stop progress indicator
+        self.progress.stop()
+        self.processing_status.config(text="")
+        self.status_label.config(text="Ready")
+        self.url_pattern_btn.config(state='normal')
+        self.is_processing = False
+
+        # Create dialog - don't use transient to avoid affecting main window size
+        dialog = tk.Toplevel(self.root)
+        dialog.title("URL Pattern Filter")
+        dialog.geometry("700x750")
+        dialog.configure(bg=self.colors['background'])
+        dialog.resizable(True, True)
+        # Don't use transient - it can affect parent window state on some systems
+        dialog.grab_set()
+        dialog.focus_set()
+
+        # Center the dialog without affecting main window
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (700 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (750 // 2)
+        # Ensure y is not negative
+        if y < 0:
+            y = 20
+        dialog.geometry(f"700x750+{x}+{y}")
+
+        # Header
+        header = tk.Label(
+            dialog,
+            text="URL Pattern Filter",
+            font=('Segoe UI', 14, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        )
+        header.pack(pady=(15, 5))
+
+        # File info frame - more prominent
+        file_frame = tk.Frame(dialog, bg=self.colors['primary'], padx=10, pady=8)
+        file_frame.pack(fill='x', padx=20, pady=(5, 10))
+
+        tk.Label(
+            file_frame,
+            text="Selected File:",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['primary'],
+            fg='white'
+        ).pack(side='left')
+
+        tk.Label(
+            file_frame,
+            text=f"  {os.path.basename(output_path)}  ({row_count:,} rows)",
+            font=('Segoe UI', 9),
+            bg=self.colors['primary'],
+            fg='white'
+        ).pack(side='left')
+
+        # Full path in smaller text
+        tk.Label(
+            dialog,
+            text=output_path,
+            font=('Segoe UI', 8),
+            bg=self.colors['background'],
+            fg=self.colors['text_light'],
+            wraplength=600
+        ).pack(pady=(0, 5))
+
+        # Loading label - will be replaced with content
+        loading_label = tk.Label(
+            dialog,
+            text="⏳ Loading pattern analysis...",
+            font=('Segoe UI', 11),
+            bg=self.colors['background'],
+            fg=self.colors['primary']
+        )
+        loading_label.pack(pady=20)
+
+        # Force dialog to display before loading patterns
+        dialog.update()
+
+        # Defer pattern loading to allow dialog to render first
+        dialog.after(100, lambda: self._populate_pattern_dialog(
+            dialog, output_path, preview, row_count, loading_label
+        ))
+
+    def _populate_pattern_dialog(self, dialog, output_path, preview, row_count, loading_label):
+        """Populate the pattern dialog with checkboxes and controls."""
+        # Remove loading label
+        loading_label.destroy()
+
+        # Instructions
+        instructions = tk.Label(
+            dialog,
+            text="Select patterns to apply. URLs matching checked patterns will be removed.",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        )
+        instructions.pack(pady=(0, 10))
+
+        # Pattern checkboxes frame with scroll
+        pattern_frame = tk.Frame(dialog, bg=self.colors['card'], relief='solid', borderwidth=1)
+        pattern_frame.pack(fill='both', expand=True, padx=20, pady=10)
+
+        # Store checkbox variables
+        pattern_vars = {}
+        total_count = tk.IntVar(value=0)
+
+        def update_total():
+            total = sum(preview[name]['count'] for name, var in pattern_vars.items() if var.get())
+            total_count.set(total)
+            total_label.config(text=f"Total URLs to remove: {total}")
+
+        def show_sample_urls(pattern_name, pattern_desc, sample_urls, total_count):
+            """Show popup with sample URLs for a pattern."""
+            sample_dialog = tk.Toplevel(dialog)
+            sample_dialog.title(f"Sample URLs - {pattern_desc}")
+            sample_dialog.geometry("700x400")
+            sample_dialog.configure(bg=self.colors['background'])
+            sample_dialog.transient(dialog)
+            sample_dialog.grab_set()
+
+            # Center
+            sample_dialog.update_idletasks()
+            x = (sample_dialog.winfo_screenwidth() // 2) - (700 // 2)
+            y = (sample_dialog.winfo_screenheight() // 2) - (400 // 2)
+            sample_dialog.geometry(f"+{x}+{y}")
+
+            # Header
+            tk.Label(
+                sample_dialog,
+                text=f"{pattern_desc}",
+                font=('Segoe UI', 12, 'bold'),
+                bg=self.colors['background'],
+                fg=self.colors['text']
+            ).pack(pady=(15, 5))
+
+            tk.Label(
+                sample_dialog,
+                text=f"Showing {len(sample_urls)} of {total_count} matching URLs",
+                font=('Segoe UI', 9),
+                bg=self.colors['background'],
+                fg=self.colors['text_light']
+            ).pack(pady=(0, 10))
+
+            # URL list with vertical and horizontal scrollbars
+            list_frame = tk.Frame(sample_dialog, bg=self.colors['background'])
+            list_frame.pack(fill='both', expand=True, padx=20, pady=10)
+
+            # Vertical scrollbar
+            v_scrollbar = tk.Scrollbar(list_frame, orient='vertical')
+            v_scrollbar.pack(side='right', fill='y')
+
+            # Horizontal scrollbar
+            h_scrollbar = tk.Scrollbar(list_frame, orient='horizontal')
+            h_scrollbar.pack(side='bottom', fill='x')
+
+            url_listbox = tk.Listbox(
+                list_frame,
+                font=('Consolas', 9),
+                bg='#fafafa',
+                fg=self.colors['text'],
+                selectbackground=self.colors['primary'],
+                relief='solid',
+                borderwidth=1,
+                yscrollcommand=v_scrollbar.set,
+                xscrollcommand=h_scrollbar.set
+            )
+            url_listbox.pack(side='left', fill='both', expand=True)
+            v_scrollbar.config(command=url_listbox.yview)
+            h_scrollbar.config(command=url_listbox.xview)
+
+            for url in sample_urls:
+                url_listbox.insert('end', url)
+
+            # Close button
+            tk.Button(
+                sample_dialog,
+                text="Close",
+                command=sample_dialog.destroy,
+                font=('Segoe UI', 10),
+                bg=self.colors['text_light'],
+                fg='white',
+                relief='flat',
+                padx=20,
+                pady=8,
+                cursor='hand2'
+            ).pack(pady=15)
+
+        # Create checkboxes for each pattern
+        for name, regex, desc in URL_EXCLUSION_PATTERNS:
+            data = preview.get(name, {'count': 0, 'description': desc, 'sample_urls': []})
+            count = data['count']
+            samples = data.get('sample_urls', [])
+
+            var = tk.BooleanVar(value=True)  # All checked by default
+            pattern_vars[name] = var
+
+            row_frame = tk.Frame(pattern_frame, bg=self.colors['card'])
+            row_frame.pack(fill='x', padx=15, pady=5)
+
+            cb = tk.Checkbutton(
+                row_frame,
+                text=f"{desc}",
+                variable=var,
+                command=update_total,
+                font=('Segoe UI', 10),
+                bg=self.colors['card'],
+                fg=self.colors['text'],
+                activebackground=self.colors['card'],
+                selectcolor=self.colors['card']
+            )
+            cb.pack(side='left')
+
+            count_label = tk.Label(
+                row_frame,
+                text=f"({count} URLs)" if count > 0 else "(0 URLs)",
+                font=('Segoe UI', 9),
+                bg=self.colors['card'],
+                fg=self.colors['primary'] if count > 0 else self.colors['text_light']
+            )
+            count_label.pack(side='right')
+
+            # Add View button if there are matching URLs
+            if count > 0:
+                view_btn = tk.Button(
+                    row_frame,
+                    text="View",
+                    command=lambda n=name, d=desc, s=samples, c=count: show_sample_urls(n, d, s, c),
+                    font=('Segoe UI', 8),
+                    bg=self.colors['primary'],
+                    fg='white',
+                    relief='flat',
+                    padx=8,
+                    pady=2,
+                    cursor='hand2'
+                )
+                view_btn.pack(side='right', padx=(0, 10))
+
+        # Calculate initial total
+        initial_total = sum(preview[name]['count'] for name in pattern_vars.keys())
+        total_count.set(initial_total)
+
+        # ============ CUSTOM PATTERNS SECTION ============
+        custom_frame = tk.LabelFrame(
+            dialog,
+            text=" Custom Patterns (text contains) ",
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text'],
+            padx=10,
+            pady=10
+        )
+        custom_frame.pack(fill='x', padx=20, pady=(10, 5))
+
+        # Store custom patterns: {pattern_text: {'count': N, 'var': BooleanVar, 'sample_urls': []}}
+        custom_patterns = {}
+        unique_urls = list(set(str(u) for u in preview.get(list(preview.keys())[0], {}).get('sample_urls', [])))
+        # We need to get all URLs from the file - let's store them
+        all_urls_for_custom = []
+        try:
+            import pandas as pd
+            temp_df = pd.read_excel(output_path)
+            all_urls_for_custom = [str(u) for u in temp_df['URL'].unique()]
+        except:
+            pass
+
+        # Input row
+        input_row = tk.Frame(custom_frame, bg=self.colors['background'])
+        input_row.pack(fill='x', pady=(0, 10))
+
+        tk.Label(
+            input_row,
+            text="URL contains:",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(side='left')
+
+        custom_entry = tk.Entry(
+            input_row,
+            font=('Segoe UI', 10),
+            width=30,
+            relief='solid',
+            borderwidth=1
+        )
+        custom_entry.pack(side='left', padx=10)
+
+        validation_label = tk.Label(
+            input_row,
+            text="",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        )
+        validation_label.pack(side='left', padx=5)
+
+        # Custom patterns list frame
+        custom_list_frame = tk.Frame(custom_frame, bg=self.colors['background'])
+        custom_list_frame.pack(fill='x')
+
+        def validate_custom_pattern():
+            """Validate custom pattern and show match count."""
+            pattern_text = custom_entry.get().strip()
+            if not pattern_text:
+                validation_label.config(text="Enter a pattern", fg=self.colors['error'])
+                return None, 0, []
+
+            # Check for matches
+            matching_urls = [url for url in all_urls_for_custom if pattern_text.lower() in url.lower()]
+            count = len(matching_urls)
+
+            if count == 0:
+                validation_label.config(text="No matches found", fg=self.colors['error'])
+            else:
+                validation_label.config(text=f"✓ {count} URLs match", fg=self.colors['secondary'])
+
+            return pattern_text, count, matching_urls[:20]
+
+        def add_custom_pattern():
+            """Add validated custom pattern to the list."""
+            pattern_text, count, sample_urls = validate_custom_pattern()
+            if not pattern_text or count == 0:
+                return
+
+            if pattern_text in custom_patterns:
+                validation_label.config(text="Already added", fg=self.colors['error'])
+                return
+
+            # Add to custom patterns
+            var = tk.BooleanVar(value=True)
+            custom_patterns[pattern_text] = {
+                'count': count,
+                'var': var,
+                'sample_urls': sample_urls
+            }
+
+            # Create row for this custom pattern
+            row = tk.Frame(custom_list_frame, bg=self.colors['card'], relief='solid', borderwidth=1)
+            row.pack(fill='x', pady=2)
+
+            cb = tk.Checkbutton(
+                row,
+                text=f'Contains "{pattern_text}"',
+                variable=var,
+                command=update_total,
+                font=('Segoe UI', 9),
+                bg=self.colors['card'],
+                fg=self.colors['text'],
+                activebackground=self.colors['card'],
+                selectcolor=self.colors['card']
+            )
+            cb.pack(side='left', padx=5)
+
+            tk.Label(
+                row,
+                text=f"({count} URLs)",
+                font=('Segoe UI', 8),
+                bg=self.colors['card'],
+                fg=self.colors['primary']
+            ).pack(side='right', padx=5)
+
+            # View button
+            tk.Button(
+                row,
+                text="View",
+                command=lambda p=pattern_text, s=sample_urls, c=count: show_sample_urls(
+                    f"custom_{p}", f'URLs containing "{p}"', s, c
+                ),
+                font=('Segoe UI', 8),
+                bg=self.colors['primary'],
+                fg='white',
+                relief='flat',
+                padx=6,
+                pady=1,
+                cursor='hand2'
+            ).pack(side='right', padx=2)
+
+            # Remove button
+            def remove_pattern(pattern=pattern_text, frame=row):
+                del custom_patterns[pattern]
+                frame.destroy()
+                update_total()
+
+            tk.Button(
+                row,
+                text="✕",
+                command=remove_pattern,
+                font=('Segoe UI', 8),
+                bg=self.colors['error'],
+                fg='white',
+                relief='flat',
+                padx=4,
+                pady=1,
+                cursor='hand2'
+            ).pack(side='right', padx=2)
+
+            # Clear entry and update total
+            custom_entry.delete(0, 'end')
+            validation_label.config(text="")
+            update_total()
+
+        # Buttons for custom pattern
+        tk.Button(
+            input_row,
+            text="Validate",
+            command=validate_custom_pattern,
+            font=('Segoe UI', 8),
+            bg=self.colors['text_light'],
+            fg='white',
+            relief='flat',
+            padx=10,
+            pady=3,
+            cursor='hand2'
+        ).pack(side='left', padx=2)
+
+        tk.Button(
+            input_row,
+            text="Add",
+            command=add_custom_pattern,
+            font=('Segoe UI', 8),
+            bg=self.colors['secondary'],
+            fg='white',
+            relief='flat',
+            padx=10,
+            pady=3,
+            cursor='hand2'
+        ).pack(side='left', padx=2)
+
+        # Update the update_total function to include custom patterns
+        def update_total():
+            builtin_total = sum(preview[name]['count'] for name, var in pattern_vars.items() if var.get())
+            custom_total = sum(data['count'] for data in custom_patterns.values() if data['var'].get())
+            total = builtin_total + custom_total
+            total_count.set(total)
+            total_label.config(text=f"Total URLs to remove: {total}")
+
+        # Total label
+        total_label = tk.Label(
+            dialog,
+            text=f"Total URLs to remove: {initial_total}",
+            font=('Segoe UI', 11, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['primary']
+        )
+        total_label.pack(pady=10)
+
+        # Button frame
+        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
+        btn_frame.pack(pady=(10, 15))
+
+        def select_all():
+            for var in pattern_vars.values():
+                var.set(True)
+            for data in custom_patterns.values():
+                data['var'].set(True)
+            update_total()
+
+        def deselect_all():
+            for var in pattern_vars.values():
+                var.set(False)
+            for data in custom_patterns.values():
+                data['var'].set(False)
+            update_total()
+
+        def apply_filter():
+            enabled = [name for name, var in pattern_vars.items() if var.get()]
+            # Get enabled custom patterns
+            custom_enabled = [pattern for pattern, data in custom_patterns.items() if data['var'].get()]
+            if not enabled and not custom_enabled:
+                messagebox.showwarning("No Patterns", "Please select at least one pattern to apply")
+                return
+            dialog.destroy()
+            self._run_url_pattern_filter(output_path, enabled, custom_enabled)
+
+        tk.Button(
+            btn_frame,
+            text="Select All",
+            command=select_all,
+            font=('Segoe UI', 9),
+            bg=self.colors['text_light'],
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        tk.Button(
+            btn_frame,
+            text="Deselect All",
+            command=deselect_all,
+            font=('Segoe UI', 9),
+            bg=self.colors['text_light'],
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        tk.Button(
+            btn_frame,
+            text="Apply",
+            command=apply_filter,
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=25,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=15)
+
+        tk.Button(
+            btn_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            font=('Segoe UI', 9),
+            bg=self.colors['text_light'],
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+    def _run_url_pattern_filter(self, input_path, enabled_patterns, custom_patterns=None):
+        """Run URL pattern filtering with selected patterns."""
+        self.is_processing = True
+        self.url_pattern_btn.config(state='disabled')
+        self.progress.start(10)
+        self.processing_status.config(text="🔗 Filtering URL patterns...")
+        self.status_label.config(text="Filtering...")
+
+        thread = threading.Thread(
+            target=self._url_pattern_worker,
+            args=(input_path, enabled_patterns, custom_patterns or []),
+            daemon=True
+        )
+        thread.start()
+
+    def _url_pattern_worker(self, input_path, enabled_patterns, custom_patterns):
+        """Background worker for URL pattern filtering."""
+        try:
+            base, ext = os.path.splitext(input_path)
+            output_path = f"{base}_filtered{ext}"
+
+            original_stdout = sys.stdout
+
+            class LogWriter:
+                def __init__(self, log_func):
+                    self.log_func = log_func
+                def write(self, text):
+                    if text.strip():
+                        self.log_func(text.strip())
+                def flush(self):
+                    pass
+
+            sys.stdout = LogWriter(self.log)
+
+            config = {
+                'max_rank': self.top_n.get(),
+                'frequency_threshold': 0.20,
+                'remove_low_confidence': False,
+            }
+
+            pp = PostProcessor(config)
+            pp.load(input_path)
+            pp.run_all(url_patterns=enabled_patterns, custom_patterns=custom_patterns)
+            pp.print_stats()
+            pp.export(output_path)
+
+            sys.stdout = original_stdout
+
+            self.root.after(0, lambda: messagebox.showinfo(
+                "URL Pattern Filter Complete",
+                f"Filtered output saved to:\n{output_path}\n\n"
+                f"Rows before: {pp.stats.get('rows_before', '?')}\n"
+                f"Rows after: {pp.stats.get('rows_after', '?')}\n"
+                f"Removed: {pp.stats.get('rows_removed', '?')} ({pp.stats.get('pct_removed', 0):.1f}%)"
+            ))
+
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            self.log(f"URL pattern filter error: {str(e)}")
+            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+
+        finally:
+            self.root.after(0, self._url_pattern_finish)
+
+    def _url_pattern_finish(self):
+        """Finish URL pattern filtering."""
+        self.progress.stop()
+        self.processing_status.config(text="✓ URL pattern filtering complete!")
+        self.url_pattern_btn.config(state='normal')
+        self.is_processing = False
+        self.status_label.config(text="Ready")
+        self.root.after(3000, lambda: self.processing_status.config(text=""))
+
+    # ==================== REMAP URLs METHODS ====================
+
+    def show_remap_dialog(self):
+        """Show dialog for remapping filtered URLs against a new taxonomy."""
+        if self.is_processing:
+            messagebox.showwarning("Warning", "Already processing")
+            return
+
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Remap URLs with New Taxonomy")
+        dialog.geometry("650x450")
+        dialog.configure(bg=self.colors['background'])
+        dialog.resizable(True, True)
+        dialog.grab_set()
+        dialog.focus_set()
+
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (650 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (450 // 2)
+        if y < 0:
+            y = 20
+        dialog.geometry(f"650x450+{x}+{y}")
+
+        # Header
+        tk.Label(
+            dialog,
+            text="🔄 Remap URLs with New Taxonomy",
+            font=('Segoe UI', 14, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(pady=(15, 5))
+
+        tk.Label(
+            dialog,
+            text="Re-run taxonomy matching on a filtered subset of URLs against a new taxonomy file.\n"
+                 "Only URLs present in the filtered file will be processed.",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light'],
+            justify='center'
+        ).pack(pady=(0, 15))
+
+        # File inputs frame
+        inputs_frame = tk.Frame(dialog, bg=self.colors['card'], relief='solid', bd=1)
+        inputs_frame.pack(fill='x', padx=20, pady=10)
+
+        # Variables for file paths
+        self.remap_filtered_file = tk.StringVar()
+        self.remap_semantic_file = tk.StringVar()
+        self.remap_taxonomy_file = tk.StringVar()
+        self.remap_output_file = tk.StringVar(value='taxonomy_match_remapped.xlsx')
+
+        # Row 1: Filtered/Cleaned file (URL source)
+        row1 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row1.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row1,
+            text="Filtered File (URL source):",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row1,
+            textvariable=self.remap_filtered_file,
+            font=('Segoe UI', 9),
+            width=40
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row1,
+            text="Browse",
+            command=lambda: self._browse_remap_file(self.remap_filtered_file, "Select Filtered/Cleaned File"),
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Row 2: Semantic carriers file (keyword source)
+        row2 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row2.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row2,
+            text="Semantic File (keywords):",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row2,
+            textvariable=self.remap_semantic_file,
+            font=('Segoe UI', 9),
+            width=40
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row2,
+            text="Browse",
+            command=lambda: self._browse_remap_file(self.remap_semantic_file, "Select Semantic Carriers File"),
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Row 3: New taxonomy file
+        row3 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row3.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row3,
+            text="New Taxonomy File:",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row3,
+            textvariable=self.remap_taxonomy_file,
+            font=('Segoe UI', 9),
+            width=40
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row3,
+            text="Browse",
+            command=lambda: self._browse_remap_file(self.remap_taxonomy_file, "Select New Taxonomy File"),
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Row 4: Output file
+        row4 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row4.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row4,
+            text="Output File:",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row4,
+            textvariable=self.remap_output_file,
+            font=('Segoe UI', 9),
+            width=40
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row4,
+            text="Browse",
+            command=self._browse_remap_output,
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Status label for URL count
+        self.remap_status_label = tk.Label(
+            dialog,
+            text="",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        )
+        self.remap_status_label.pack(pady=10)
+
+        # Buttons frame
+        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
+        btn_frame.pack(pady=15)
+
+        tk.Button(
+            btn_frame,
+            text="▶ Run Remap",
+            command=lambda: self._run_remap(dialog),
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['secondary'],
+            fg='white',
+            relief='flat',
+            padx=25,
+            pady=10,
+            cursor='hand2'
+        ).pack(side='left', padx=10)
+
+        tk.Button(
+            btn_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            font=('Segoe UI', 10),
+            bg=self.colors['text_light'],
+            fg='white',
+            relief='flat',
+            padx=25,
+            pady=10,
+            cursor='hand2'
+        ).pack(side='left', padx=10)
+
+        # Bind file selection to update status
+        self.remap_filtered_file.trace_add('write', lambda *args: self._update_remap_status())
+        self.remap_semantic_file.trace_add('write', lambda *args: self._update_remap_status())
+
+    def _browse_remap_file(self, variable, title):
+        """Browse for a remap input file."""
+        filepath = filedialog.askopenfilename(
+            title=title,
+            filetypes=[("Excel files", "*.xlsx")]
+        )
+        if filepath:
+            variable.set(filepath)
+
+    def _browse_remap_output(self):
+        """Browse for remap output file location."""
+        filepath = filedialog.asksaveasfilename(
+            title="Save Remapped Output As",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialfile=self.remap_output_file.get()
+        )
+        if filepath:
+            self.remap_output_file.set(filepath)
+
+    def _update_remap_status(self):
+        """Update status label showing URL counts."""
+        filtered_path = self.remap_filtered_file.get()
+        semantic_path = self.remap_semantic_file.get()
+
+        if not filtered_path or not os.path.exists(filtered_path):
+            self.remap_status_label.config(text="")
+            return
+
+        try:
+            # Count URLs in filtered file
+            df_filtered = pd.read_excel(filtered_path, usecols=['URL'])
+            filtered_urls = set(df_filtered['URL'].dropna().unique())
+            msg = f"📊 Filtered file: {len(filtered_urls):,} unique URLs"
+
+            # If semantic file also selected, show overlap
+            if semantic_path and os.path.exists(semantic_path):
+                df_semantic = pd.read_excel(semantic_path, usecols=['URL'])
+                semantic_urls = set(df_semantic['URL'].dropna().unique())
+                overlap = filtered_urls & semantic_urls
+                msg += f"  |  Semantic file: {len(semantic_urls):,} URLs  |  Match: {len(overlap):,} URLs"
+
+            self.remap_status_label.config(text=msg, fg=self.colors['primary'])
+        except Exception as e:
+            self.remap_status_label.config(text=f"Error reading file: {str(e)}", fg=self.colors['error'])
+
+    def _run_remap(self, dialog):
+        """Validate inputs and run the remap process."""
+        filtered_path = self.remap_filtered_file.get()
+        semantic_path = self.remap_semantic_file.get()
+        taxonomy_path = self.remap_taxonomy_file.get()
+        output_path = self.remap_output_file.get()
+
+        # Validate inputs
+        errors = []
+        if not filtered_path or not os.path.exists(filtered_path):
+            errors.append("Please select a valid filtered file")
+        if not semantic_path or not os.path.exists(semantic_path):
+            errors.append("Please select a valid semantic carriers file")
+        if not taxonomy_path or not os.path.exists(taxonomy_path):
+            errors.append("Please select a valid taxonomy file")
+        if not output_path:
+            errors.append("Please specify an output file")
+
+        if errors:
+            messagebox.showerror("Validation Error", "\n".join(errors))
+            return
+
+        # Close dialog
+        dialog.destroy()
+
+        # Start processing
+        self.is_processing = True
+        self.remap_btn.config(state='disabled')
+        self.progress.start(10)
+        self.processing_status.config(text="🔄 Remapping URLs with new taxonomy...")
+        self.status_label.config(text="Remapping...")
+        self.clear_log()
+
+        thread = threading.Thread(
+            target=self._remap_worker,
+            args=(filtered_path, semantic_path, taxonomy_path, output_path),
+            daemon=True
+        )
+        thread.start()
+
+    def _remap_worker(self, filtered_path, semantic_path, taxonomy_path, output_path):
+        """Background worker for remap process."""
+        try:
+            self.log("=" * 50)
+            self.log("Starting URL Remap Process")
+            self.log("=" * 50)
+
+            # Step 1: Load URLs from filtered file
+            self.log(f"\n[1/4] Loading URLs from filtered file...")
+            self.log(f"  File: {os.path.basename(filtered_path)}")
+            df_filtered = pd.read_excel(filtered_path)
+            filtered_urls = set(df_filtered['URL'].dropna().unique())
+            self.log(f"  Found {len(filtered_urls):,} unique URLs to process")
+
+            # Step 2: Load semantic carriers and filter to matching URLs
+            self.log(f"\n[2/4] Loading and filtering semantic carriers...")
+            self.log(f"  File: {os.path.basename(semantic_path)}")
+            df_semantic = pd.read_excel(semantic_path)
+            original_count = len(df_semantic)
+            self.log(f"  Original rows: {original_count:,}")
+
+            # Filter to only URLs in the filtered file
+            df_semantic_filtered = df_semantic[df_semantic['URL'].isin(filtered_urls)].copy()
+            self.log(f"  After filtering: {len(df_semantic_filtered):,} rows")
+
+            if len(df_semantic_filtered) == 0:
+                raise ValueError("No matching URLs found between filtered file and semantic file")
+
+            # Step 3: Create temporary filtered semantic file
+            self.log(f"\n[3/4] Creating temporary filtered semantic file...")
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.xlsx', delete=False) as tmp:
+                temp_semantic_path = tmp.name
+
+            df_semantic_filtered.to_excel(temp_semantic_path, index=False)
+            self.log(f"  Temporary file created with {len(df_semantic_filtered):,} rows")
+
+            # Step 4: Run matching with new taxonomy
+            self.log(f"\n[4/4] Running taxonomy matching...")
+            self.log(f"  Taxonomy: {os.path.basename(taxonomy_path)}")
+
+            # Redirect stdout to capture matcher output
+            original_stdout = sys.stdout
+
+            class LogWriter:
+                def __init__(self, log_func):
+                    self.log_func = log_func
+                def write(self, text):
+                    if text.strip():
+                        self.log_func(text.strip())
+                def flush(self):
+                    pass
+
+            sys.stdout = LogWriter(self.log)
+
+            matcher = TaxonomyMatcher(
+                country_code=self.selected_country.get(),
+                semantic_file=temp_semantic_path,
+                taxonomy_file=taxonomy_path,
+                output_file=output_path,
+                similarity_threshold=self.threshold.get(),
+                consolidate_topics=True,
+                include_summary=self.use_summary.get(),
+                top_n=self.top_n.get()
+            )
+            matcher.run()
+
+            sys.stdout = original_stdout
+
+            # Cleanup temp file
+            try:
+                os.unlink(temp_semantic_path)
+            except:
+                pass
+
+            self.log("\n" + "=" * 50)
+            self.log("✓ Remap completed successfully!")
+            self.log(f"  Output: {output_path}")
+            self.log("=" * 50)
+
+            self.root.after(0, lambda: messagebox.showinfo(
+                "Remap Complete",
+                f"URL remapping completed!\n\n"
+                f"URLs processed: {len(filtered_urls):,}\n"
+                f"Output saved to:\n{output_path}"
+            ))
+
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            self.log(f"\n❌ Error during remap: {str(e)}")
+            self.root.after(0, lambda: messagebox.showerror("Remap Error", str(e)))
+
+        finally:
+            self.root.after(0, self._remap_finish)
+
+    def _remap_finish(self):
+        """Finish remap processing."""
+        self.progress.stop()
+        self.processing_status.config(text="✓ URL remap complete!")
+        self.remap_btn.config(state='normal')
+        self.is_processing = False
+        self.status_label.config(text="Ready")
         self.root.after(3000, lambda: self.processing_status.config(text=""))
 
     # ==================== SYNONYM EDITOR METHODS ====================
@@ -1271,6 +2948,7 @@ class TaxonomyMapperGUI:
             font=('Segoe UI', 10),
             yscrollcommand=scrollbar.set,
             selectmode='single',
+            exportselection=False,
             bg=self.colors['card'],
             fg=self.colors['text'],
             selectbackground=self.colors['primary'],
@@ -1381,6 +3059,7 @@ class TaxonomyMapperGUI:
             font=('Consolas', 10),
             yscrollcommand=scrollbar.set,
             selectmode='extended',
+            exportselection=False,
             bg='#fafafa',
             fg=self.colors['text'],
             selectbackground=self.colors['primary'],
@@ -2315,6 +3994,1262 @@ class TaxonomyMapperGUI:
             self.log(f"ERROR generating report: {e}")
             self.report_status_label.config(text="Error", fg=self.colors['error'])
             messagebox.showerror("Error", f"Failed to generate report:\n{e}")
+
+    def generate_quality_report(self):
+        """Generate match quality report with similarity scores and rankings per URL."""
+        from fuzzywuzzy import fuzz
+        from collections import defaultdict
+
+        # 1. Validate files are selected
+        semantic_file = self.semantic_file.get()
+        taxonomy_file = self.taxonomy_file.get()
+
+        if not semantic_file or not os.path.exists(semantic_file):
+            messagebox.showerror("Error", "Please select a valid Semantic Carriers file in Setup tab")
+            return
+
+        if not taxonomy_file or not os.path.exists(taxonomy_file):
+            messagebox.showerror("Error", "Please select a valid Taxonomy file in Setup tab")
+            return
+
+        # Get Top N value
+        try:
+            top_n = int(self.top_n_var.get())
+            if top_n < 1:
+                top_n = 3
+        except ValueError:
+            top_n = 3
+
+        # Get threshold from GUI
+        try:
+            threshold = int(self.threshold_var.get())
+        except (ValueError, AttributeError):
+            threshold = 80
+
+        # Update status
+        self.quality_report_status_label.config(text="Loading data...", fg=self.colors['primary'])
+        self.root.update()
+
+        try:
+            # Load synonyms for current country
+            country_code = self.selected_country.get()
+            synonyms = self.country_config.load_synonyms(country_code)
+            self.log(f"Loaded {len(synonyms)} synonym mappings for {country_code}")
+
+            # Load semantic carriers
+            self.log("Loading semantic carriers file...")
+            sem_df = pd.read_excel(semantic_file)
+            self.log(f"  Loaded {len(sem_df)} URLs")
+
+            # Load taxonomy
+            self.log("Loading taxonomy file...")
+            tax_df = pd.read_excel(taxonomy_file)
+
+            # Build taxonomy lookup (same as TaxonomyMatcher)
+            topic_columns = [col for col in tax_df.columns if col.startswith('Topic')]
+            self.log(f"  Detected {len(topic_columns)} topic columns")
+
+            taxonomy_lookup = []
+            for idx, row in tax_df.iterrows():
+                product = row.get('Product', '')
+                domain = row.get('Domain', '')
+                segment = row.get('Segment', '')
+
+                for topic_col in topic_columns:
+                    topic = row.get(topic_col, '')
+                    if pd.notna(topic) and topic.strip():
+                        taxonomy_lookup.append({
+                            'product': product if pd.notna(product) else '',
+                            'domain': domain if pd.notna(domain) else '',
+                            'segment': segment if pd.notna(segment) else '',
+                            'topic': topic.strip()
+                        })
+
+            self.log(f"  Created {len(taxonomy_lookup)} searchable topic entries")
+
+            # Helper function: expand keyword with synonyms
+            def expand_with_synonyms(keyword):
+                variations = [keyword.lower().strip()]
+                keyword_lower = keyword.lower().strip()
+
+                for key, syns in synonyms.items():
+                    if key.startswith('_'):
+                        continue
+                    key_lower = key.lower()
+
+                    if key_lower in keyword_lower:
+                        variations.extend([s.lower() for s in syns])
+
+                    for syn in syns:
+                        syn_lower = syn.lower()
+                        if syn_lower == keyword_lower or syn_lower in keyword_lower:
+                            variations.append(key_lower)
+                            break
+
+                return list(set(variations))
+
+            # Process matching with detailed tracking
+            self.quality_report_status_label.config(text="Processing matches...", fg=self.colors['primary'])
+            self.root.update()
+
+            all_matches = []
+            total_urls = len(sem_df)
+
+            for idx, row in sem_df.iterrows():
+                url = row.get('URL', '')
+
+                # Extract keywords
+                keywords = []
+                for i in range(1, 11):
+                    col_name = f'Keyword {i}'
+                    if col_name in row.index and pd.notna(row[col_name]):
+                        keywords.append(str(row[col_name]).strip())
+
+                # Track unique matches for this URL (for deduplication)
+                url_matches = {}  # (product, domain, segment, topic) -> best match info
+
+                # Process each keyword
+                for keyword in keywords:
+                    keyword_variations = expand_with_synonyms(keyword)
+
+                    for tax_entry in taxonomy_lookup:
+                        topic = tax_entry['topic'].lower()
+                        max_score = 0
+
+                        for variation in keyword_variations:
+                            score = fuzz.ratio(variation, topic)
+                            max_score = max(max_score, score)
+
+                        if max_score >= threshold:
+                            combo_key = (tax_entry['product'], tax_entry['domain'],
+                                        tax_entry['segment'], tax_entry['topic'])
+
+                            # Keep best score per unique match
+                            if combo_key not in url_matches or max_score > url_matches[combo_key]['score']:
+                                url_matches[combo_key] = {
+                                    'score': max_score,
+                                    'keyword': keyword
+                                }
+
+                # Convert url_matches to results
+                for (product, domain, segment, topic), match_info in url_matches.items():
+                    all_matches.append({
+                        'URL': url,
+                        'Product': product,
+                        'Domain': domain,
+                        'Segment': segment,
+                        'Topic': topic,
+                        'Similarity_Score': match_info['score'],
+                        'Matched_Keyword': match_info['keyword']
+                    })
+
+                # Progress indicator
+                if (idx + 1) % 100 == 0:
+                    self.quality_report_status_label.config(
+                        text=f"Processing {idx + 1}/{total_urls}...",
+                        fg=self.colors['primary']
+                    )
+                    self.root.update()
+
+            self.log(f"Found {len(all_matches)} total matches")
+
+            # Create DataFrame and add rankings
+            df_all = pd.DataFrame(all_matches)
+
+            if len(df_all) == 0:
+                messagebox.showwarning("No Matches", "No matches found. Try lowering the threshold.")
+                self.quality_report_status_label.config(text="No matches", fg=self.colors['text_light'])
+                return
+
+            # Sort by URL and Score (descending) to calculate rankings
+            df_all = df_all.sort_values(['URL', 'Similarity_Score'], ascending=[True, False])
+
+            # Add ranking per URL
+            df_all['Rank_In_URL'] = df_all.groupby('URL').cumcount() + 1
+
+            # Calculate the best score per URL for relative comparison
+            best_scores = df_all.groupby('URL')['Similarity_Score'].transform('max')
+            df_all['Score_Gap'] = best_scores - df_all['Similarity_Score']
+
+            # Add Relevance column based on rank and score
+            def calculate_relevance(row):
+                rank = row['Rank_In_URL']
+                score = row['Similarity_Score']
+                score_gap = row['Score_Gap']
+
+                if rank == 1:
+                    return 'Best Match'
+                elif rank <= 3 and score >= 90:
+                    return 'Highly Relevant'
+                elif rank <= 3 and score >= 85:
+                    return 'Relevant'
+                elif score >= 90:
+                    return 'Relevant'
+                elif score >= 85 and score_gap <= 10:
+                    return 'Somewhat Relevant'
+                elif score >= 85:
+                    return 'Tangential'
+                elif score_gap <= 5:
+                    return 'Moderate'
+                elif score_gap <= 10:
+                    return 'Weak'
+                else:
+                    return 'Low Relevance'
+
+            df_all['Relevance'] = df_all.apply(calculate_relevance, axis=1)
+
+            # Drop the temporary Score_Gap column and reorder columns
+            df_all = df_all.drop('Score_Gap', axis=1)
+            df_all = df_all[['URL', 'Product', 'Domain', 'Segment', 'Topic',
+                            'Similarity_Score', 'Matched_Keyword', 'Rank_In_URL', 'Relevance']]
+
+            # Ask for save location
+            self.quality_report_status_label.config(text="Saving...", fg=self.colors['primary'])
+            self.root.update()
+
+            output_file = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx")],
+                initialfile=f"Match_Quality_Report_{country_code}.xlsx",
+                title="Save Match Quality Report As"
+            )
+
+            if not output_file:
+                self.quality_report_status_label.config(text="Cancelled", fg=self.colors['text_light'])
+                return
+
+            self.log(f"Saving report to {output_file}...")
+
+            # Save to Excel with multiple sheets
+            with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+                # Sheet 1: All Matches with Scores
+                df_all.to_excel(writer, sheet_name='All Matches', index=False)
+
+                # Sheet 2: Top N Per URL
+                df_top_n = df_all[df_all['Rank_In_URL'] <= top_n].copy()
+                df_top_n.to_excel(writer, sheet_name=f'Top {top_n} Per URL', index=False)
+
+                # Sheet 3: Match Statistics per URL
+                stats = df_all.groupby('URL').agg({
+                    'Similarity_Score': ['count', 'max', 'mean', 'min'],
+                    'Segment': 'nunique'
+                }).reset_index()
+                stats.columns = ['URL', 'Total_Matches', 'Top_Score', 'Avg_Score', 'Min_Score', 'Unique_Segments']
+                stats['Score_Spread'] = stats['Top_Score'] - stats['Min_Score']
+                stats['Avg_Score'] = stats['Avg_Score'].round(1)
+                stats = stats.sort_values('Total_Matches', ascending=False)
+                stats.to_excel(writer, sheet_name='Match Statistics', index=False)
+
+                # Sheet 4: Low Confidence Matches (80-85%)
+                df_low_conf = df_all[(df_all['Similarity_Score'] >= threshold) &
+                                     (df_all['Similarity_Score'] <= threshold + 5)].copy()
+                df_low_conf = df_low_conf.sort_values('Similarity_Score')
+                df_low_conf.to_excel(writer, sheet_name='Low Confidence', index=False)
+
+                # Sheet 5: Relevance Summary
+                relevance_order = ['Best Match', 'Highly Relevant', 'Relevant', 'Somewhat Relevant',
+                                   'Tangential', 'Moderate', 'Weak', 'Low Relevance']
+                relevance_counts = df_all['Relevance'].value_counts()
+                relevance_summary = pd.DataFrame({
+                    'Relevance': relevance_order,
+                    'Count': [relevance_counts.get(r, 0) for r in relevance_order],
+                    'Percentage': [f"{relevance_counts.get(r, 0) / len(df_all) * 100:.1f}%" for r in relevance_order],
+                    'Description': [
+                        'Rank 1 - highest score for this URL',
+                        'Rank 2-3 with score >= 90%',
+                        'Rank 2-3 with score >= 85% OR score >= 90%',
+                        'Score >= 85% and within 10 points of best',
+                        'Score >= 85% but far from best score',
+                        'Score < 85% but within 5 points of best',
+                        'Score < 85% and within 10 points of best',
+                        'Score far below the best match for this URL'
+                    ]
+                })
+                relevance_summary.to_excel(writer, sheet_name='Relevance Summary', index=False)
+
+            # Calculate summary stats
+            urls_with_matches = df_all['URL'].nunique()
+            avg_matches_per_url = len(df_all) / urls_with_matches if urls_with_matches > 0 else 0
+            low_conf_count = len(df_low_conf)
+
+            self.log(f"Report saved successfully!")
+            self.log(f"  - Total matches: {len(df_all)}")
+            self.log(f"  - URLs with matches: {urls_with_matches}")
+            self.log(f"  - Avg matches per URL: {avg_matches_per_url:.1f}")
+            self.log(f"  - Top {top_n} matches: {len(df_top_n)}")
+            self.log(f"  - Low confidence ({threshold}-{threshold+5}%): {low_conf_count}")
+
+            self.quality_report_status_label.config(text="Complete!", fg=self.colors['secondary'])
+            messagebox.showinfo("Success", f"Report saved to:\n{output_file}\n\n"
+                                           f"Total matches: {len(df_all)}\n"
+                                           f"URLs analyzed: {urls_with_matches}\n"
+                                           f"Avg matches/URL: {avg_matches_per_url:.1f}\n"
+                                           f"Top {top_n} matches: {len(df_top_n)}")
+
+        except Exception as e:
+            self.log(f"ERROR generating quality report: {e}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.quality_report_status_label.config(text="Error", fg=self.colors['error'])
+            messagebox.showerror("Error", f"Failed to generate report:\n{e}")
+
+    def generate_unmapped_report(self):
+        """Generate diagnostic report explaining why URLs are unmapped."""
+        from fuzzywuzzy import fuzz
+        from collections import Counter, defaultdict
+
+        # 1. Validate files are selected
+        semantic_file = self.semantic_file.get()
+        taxonomy_file = self.taxonomy_file.get()
+
+        if not semantic_file or not os.path.exists(semantic_file):
+            messagebox.showerror("Error", "Please select a valid Semantic Carriers file in Setup tab")
+            return
+
+        if not taxonomy_file or not os.path.exists(taxonomy_file):
+            messagebox.showerror("Error", "Please select a valid Taxonomy file in Setup tab")
+            return
+
+        # Get threshold from GUI
+        try:
+            threshold = int(self.threshold_var.get())
+        except (ValueError, AttributeError):
+            threshold = 80
+
+        country_code = self.selected_country.get()
+
+        # Update status
+        self.unmapped_report_status_label.config(text="Analyzing unmapped URLs...", fg=self.colors['primary'])
+        self.root.update()
+
+        try:
+            # Load synonyms
+            existing_synonyms = self.country_config.load_synonyms(country_code)
+            self.log(f"Loaded {len(existing_synonyms)} synonym mappings for {country_code}")
+
+            # Load semantic file
+            self.log("Loading semantic carriers file...")
+            sem_df = pd.read_excel(semantic_file)
+            self.log(f"Loaded {len(sem_df)} URLs")
+
+            # Load taxonomy
+            self.log("Loading taxonomy file...")
+            tax_df = pd.read_excel(taxonomy_file)
+            topic_cols = [c for c in tax_df.columns if c.startswith('Topic')]
+
+            # Build flat taxonomy list
+            taxonomy_entries = []
+            for _, row in tax_df.iterrows():
+                product = str(row.get('Product', '')).strip()
+                domain = str(row.get('Domain', '')).strip()
+                segment = str(row.get('Segment', '')).strip()
+                for col in topic_cols:
+                    val = row.get(col)
+                    if pd.notna(val):
+                        topic = str(val).strip()
+                        taxonomy_entries.append({
+                            'product': product,
+                            'domain': domain,
+                            'segment': segment,
+                            'topic': topic
+                        })
+
+            self.log(f"Built {len(taxonomy_entries)} taxonomy topic entries")
+
+            # Helper function: expand keyword with synonyms
+            def expand_with_synonyms(keyword):
+                variations = [keyword]
+                kw_lower = keyword.lower()
+                for topic, syns in existing_synonyms.items():
+                    topic_lower = topic.lower()
+                    # If keyword contains topic name, add synonyms
+                    if topic_lower in kw_lower:
+                        variations.extend(syns)
+                    # If keyword matches a synonym, add the topic
+                    for syn in syns:
+                        if syn.lower() == kw_lower or syn.lower() in kw_lower:
+                            variations.append(topic)
+                return list(set(variations))
+
+            # Helper function: check product filter
+            def should_match_product(semantic_product, taxonomy_product):
+                if not taxonomy_product or taxonomy_product.strip() == '':
+                    return True  # Empty taxonomy product matches all
+                if str(taxonomy_product).strip().lower() == 'something else':
+                    return True  # "Something Else" is a generic/wildcard product
+                if not semantic_product or semantic_product.strip() == '':
+                    return True
+                if str(semantic_product).lower() == 'other':
+                    return True
+                return str(semantic_product).strip().lower() == str(taxonomy_product).strip().lower()
+
+            # Analyze each URL
+            self.log("Analyzing URLs for unmapped reasons...")
+            unmapped_summary = []
+            detailed_analysis = []
+            product_filter_data = []
+            keyword_stats = defaultdict(lambda: {'count': 0, 'best_score': 0, 'best_topic': ''})
+
+            total_urls = len(sem_df)
+            for idx, row in sem_df.iterrows():
+                if idx > 0 and idx % 100 == 0:
+                    self.log(f"  Processed {idx}/{total_urls} URLs...")
+                    self.unmapped_report_status_label.config(
+                        text=f"Analyzing... {idx}/{total_urls}",
+                        fg=self.colors['primary']
+                    )
+                    self.root.update()
+
+                url = str(row.get('URL', ''))
+                semantic_product = str(row.get('Product', ''))
+
+                # Extract keywords
+                keywords = []
+                for i in range(1, 16):
+                    col = f'Keyword {i}'
+                    if col in row and pd.notna(row[col]):
+                        keywords.append(str(row[col]).strip())
+
+                if not keywords:
+                    continue
+
+                # Track best match for this URL
+                best_overall = {'score': 0, 'topic': '', 'keyword': '', 'product': '', 'domain': '', 'segment': ''}
+                product_blocked_count = 0
+                product_blocked_examples = []
+                keyword_scores = []
+
+                for keyword in keywords:
+                    variations = expand_with_synonyms(keyword)
+                    best_for_keyword = {'score': 0, 'topic': '', 'blocked': False}
+
+                    for entry in taxonomy_entries:
+                        # Check product filter
+                        product_match = should_match_product(semantic_product, entry['product'])
+
+                        # Calculate best score across variations
+                        max_score = 0
+                        for var in variations:
+                            score = fuzz.ratio(var.lower(), entry['topic'].lower())
+                            max_score = max(max_score, score)
+
+                        if not product_match and max_score >= threshold:
+                            product_blocked_count += 1
+                            if len(product_blocked_examples) < 3:
+                                product_blocked_examples.append({
+                                    'topic': entry['topic'],
+                                    'topic_product': entry['product'],
+                                    'score': max_score
+                                })
+
+                        if product_match:
+                            if max_score > best_for_keyword['score']:
+                                best_for_keyword = {'score': max_score, 'topic': entry['topic'], 'blocked': False}
+
+                            if max_score > best_overall['score']:
+                                best_overall = {
+                                    'score': max_score,
+                                    'topic': entry['topic'],
+                                    'keyword': keyword,
+                                    'product': entry['product'],
+                                    'domain': entry['domain'],
+                                    'segment': entry['segment']
+                                }
+
+                    keyword_scores.append({
+                        'keyword': keyword,
+                        'best_score': best_for_keyword['score'],
+                        'best_topic': best_for_keyword['topic']
+                    })
+
+                    # Update keyword statistics
+                    kw_lower = keyword.lower()
+                    keyword_stats[kw_lower]['count'] += 1
+                    if best_for_keyword['score'] > keyword_stats[kw_lower]['best_score']:
+                        keyword_stats[kw_lower]['best_score'] = best_for_keyword['score']
+                        keyword_stats[kw_lower]['best_topic'] = best_for_keyword['topic']
+
+                # Determine if URL is unmapped (best score < threshold)
+                if best_overall['score'] < threshold:
+                    # Determine failure reason
+                    if best_overall['score'] < 50:
+                        reason = 'NO_SIMILAR_TOPICS'
+                        recommendation = f"Add new taxonomy topic related to keywords: {', '.join(keywords[:3])}"
+                    elif product_blocked_count > 0 and product_blocked_examples:
+                        reason = 'PRODUCT_FILTER'
+                        blocked_ex = product_blocked_examples[0]
+                        recommendation = f"Add topic '{blocked_ex['topic']}' to product '{semantic_product}' OR add generic row with empty Product"
+                    elif best_overall['score'] >= threshold - 10:
+                        reason = 'BELOW_THRESHOLD'
+                        recommendation = f"Lower threshold to {best_overall['score']}% OR add synonym '{best_overall['keyword']}' to topic '{best_overall['topic']}'"
+                    else:
+                        reason = 'TAXONOMY_GAP'
+                        recommendation = f"Add synonym '{best_overall['keyword']}' to closest topic '{best_overall['topic']}' (score: {best_overall['score']}%)"
+
+                    # Add to summary
+                    unmapped_summary.append({
+                        'URL': url,
+                        'Product': semantic_product,
+                        'Best_Score': best_overall['score'],
+                        'Best_Topic': best_overall['topic'],
+                        'Best_Keyword': best_overall['keyword'],
+                        'Failure_Reason': reason,
+                        'Recommendation': recommendation,
+                        'Keywords_Count': len(keywords),
+                        'Product_Filter_Blocked': product_blocked_count
+                    })
+
+                    # Add detailed analysis for each keyword
+                    for ks in keyword_scores:
+                        gap = threshold - ks['best_score']
+                        detailed_analysis.append({
+                            'URL': url,
+                            'Keyword': ks['keyword'],
+                            'Best_Topic_Match': ks['best_topic'],
+                            'Score': ks['best_score'],
+                            'Threshold': threshold,
+                            'Gap': gap,
+                            'Would_Match_At': f"{ks['best_score']}%" if ks['best_score'] > 0 else 'N/A'
+                        })
+
+                    # Add product filter data
+                    if product_blocked_count > 0:
+                        for blocked in product_blocked_examples:
+                            product_filter_data.append({
+                                'URL': url,
+                                'Semantic_Product': semantic_product,
+                                'Blocked_Topic': blocked['topic'],
+                                'Topic_Product': blocked['topic_product'],
+                                'Would_Score': blocked['score']
+                            })
+
+            # Create DataFrames
+            df_summary = pd.DataFrame(unmapped_summary)
+            df_detailed = pd.DataFrame(detailed_analysis)
+            df_product_filter = pd.DataFrame(product_filter_data)
+
+            # Create synonym suggestions from keyword stats
+            synonym_suggestions = []
+            for kw, stats in keyword_stats.items():
+                if stats['count'] >= 3 and 50 <= stats['best_score'] < threshold:
+                    synonym_suggestions.append({
+                        'Keyword': kw,
+                        'Frequency': stats['count'],
+                        'Best_Topic': stats['best_topic'],
+                        'Score': stats['best_score'],
+                        'Suggested_Action': f"Add '{kw}' as synonym to '{stats['best_topic']}'"
+                    })
+
+            df_synonyms = pd.DataFrame(synonym_suggestions)
+            if len(df_synonyms) > 0:
+                df_synonyms = df_synonyms.sort_values('Frequency', ascending=False)
+
+            # Calculate statistics
+            total_unmapped = len(df_summary)
+            reason_counts = df_summary['Failure_Reason'].value_counts().to_dict() if len(df_summary) > 0 else {}
+
+            stats_data = [
+                {'Metric': 'Total URLs Analyzed', 'Value': total_urls},
+                {'Metric': 'Unmapped URLs', 'Value': total_unmapped},
+                {'Metric': 'Unmapped Percentage', 'Value': f"{total_unmapped/total_urls*100:.1f}%" if total_urls > 0 else '0%'},
+                {'Metric': 'Threshold Used', 'Value': f"{threshold}%"},
+                {'Metric': '', 'Value': ''},
+                {'Metric': 'Failure Reasons Breakdown:', 'Value': ''},
+            ]
+            for reason, count in reason_counts.items():
+                stats_data.append({'Metric': f"  - {reason}", 'Value': count})
+
+            if len(df_summary) > 0:
+                avg_best_score = df_summary['Best_Score'].mean()
+                stats_data.append({'Metric': '', 'Value': ''})
+                stats_data.append({'Metric': 'Average Best Score (unmapped)', 'Value': f"{avg_best_score:.1f}%"})
+
+                # Threshold recommendation
+                if avg_best_score >= threshold - 10:
+                    recommended_threshold = int(avg_best_score) - 5
+                    stats_data.append({'Metric': 'Recommended Threshold', 'Value': f"{recommended_threshold}% (would match more URLs)"})
+
+            df_stats = pd.DataFrame(stats_data)
+
+            # Ask for save location
+            self.unmapped_report_status_label.config(text="Saving...", fg=self.colors['primary'])
+            self.root.update()
+
+            output_file = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx")],
+                initialfile=f"Unmapped_Reasons_Report_{country_code}.xlsx",
+                title="Save Unmapped Reasons Report As"
+            )
+
+            if not output_file:
+                self.unmapped_report_status_label.config(text="Cancelled", fg=self.colors['text_light'])
+                return
+
+            self.log(f"Saving report to {output_file}...")
+
+            # Save to Excel with multiple sheets
+            with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+                # Sheet 1: Unmapped Summary
+                if len(df_summary) > 0:
+                    df_summary.to_excel(writer, sheet_name='Unmapped Summary', index=False)
+                else:
+                    pd.DataFrame({'Message': ['No unmapped URLs found!']}).to_excel(writer, sheet_name='Unmapped Summary', index=False)
+
+                # Sheet 2: Detailed Analysis
+                if len(df_detailed) > 0:
+                    df_detailed.to_excel(writer, sheet_name='Detailed Analysis', index=False)
+                else:
+                    pd.DataFrame({'Message': ['No detailed analysis data']}).to_excel(writer, sheet_name='Detailed Analysis', index=False)
+
+                # Sheet 3: Product Filter Impact
+                if len(df_product_filter) > 0:
+                    df_product_filter.to_excel(writer, sheet_name='Product Filter Impact', index=False)
+                else:
+                    pd.DataFrame({'Message': ['No product filter blocks detected']}).to_excel(writer, sheet_name='Product Filter Impact', index=False)
+
+                # Sheet 4: Synonym Suggestions
+                if len(df_synonyms) > 0:
+                    df_synonyms.to_excel(writer, sheet_name='Synonym Suggestions', index=False)
+                else:
+                    pd.DataFrame({'Message': ['No synonym suggestions - keywords are too different from topics']}).to_excel(writer, sheet_name='Synonym Suggestions', index=False)
+
+                # Sheet 5: Statistics
+                df_stats.to_excel(writer, sheet_name='Statistics', index=False)
+
+            self.log(f"Report saved successfully!")
+            self.log(f"  - Unmapped URLs analyzed: {total_unmapped}")
+            self.log(f"  - Failure reasons: {reason_counts}")
+            self.log(f"  - Synonym suggestions: {len(df_synonyms)}")
+
+            self.unmapped_report_status_label.config(text="Complete!", fg=self.colors['secondary'])
+
+            # Build reason breakdown string
+            reason_str = "\n".join([f"  {r}: {c}" for r, c in reason_counts.items()])
+
+            messagebox.showinfo("Success", f"Report saved to:\n{output_file}\n\n"
+                                           f"Unmapped URLs: {total_unmapped}\n"
+                                           f"Synonym suggestions: {len(df_synonyms)}\n\n"
+                                           f"Failure reasons:\n{reason_str}")
+
+        except Exception as e:
+            self.log(f"ERROR generating unmapped report: {e}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.unmapped_report_status_label.config(text="Error", fg=self.colors['error'])
+            messagebox.showerror("Error", f"Failed to generate report:\n{e}")
+
+    # ==================== TOPIC RECOMMENDATIONS REPORT METHODS ====================
+
+    def _browse_topic_rec_file(self, variable, title):
+        """Browse for input file for topic recommendations report."""
+        file = filedialog.askopenfilename(
+            title=title,
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if file:
+            variable.set(file)
+
+    def _browse_topic_rec_output(self):
+        """Browse for output file location."""
+        file = filedialog.asksaveasfilename(
+            title="Save Topic Recommendations Report",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialfile=self.topic_rec_output_file.get()
+        )
+        if file:
+            self.topic_rec_output_file.set(file)
+
+    def generate_topic_recommendations_report(self):
+        """Generate comprehensive topic recommendations report."""
+        from collections import Counter
+        from pathlib import Path
+
+        # Validate inputs
+        match_file = self.topic_rec_match_file.get()
+        taxonomy_file = self.topic_rec_taxonomy_file.get()
+        output_file = self.topic_rec_output_file.get()
+        doc_source = self.topic_rec_doc_source.get()
+
+        if not match_file or not os.path.exists(match_file):
+            messagebox.showerror("Error", "Please select a valid Match File (cleaned)")
+            return
+
+        if not taxonomy_file or not os.path.exists(taxonomy_file):
+            messagebox.showerror("Error", "Please select a valid Taxonomy File")
+            return
+
+        if not output_file:
+            messagebox.showerror("Error", "Please specify an output file")
+            return
+
+        # Update status
+        self.topic_rec_status_label.config(text="Generating report...", fg=self.colors['primary'])
+        self.topic_rec_report_btn.config(state='disabled')
+        self.root.update()
+
+        try:
+            self.log("=" * 50)
+            self.log("TOPIC RECOMMENDATIONS REPORT")
+            self.log("=" * 50)
+
+            # Load match data
+            self.log(f"Loading match file: {os.path.basename(match_file)}")
+            try:
+                df_match = pd.read_excel(match_file, sheet_name='Cleaned')
+            except:
+                df_match = pd.read_excel(match_file, sheet_name=0)
+            self.log(f"  Loaded {len(df_match)} rows, {df_match['URL'].nunique()} unique URLs")
+
+            # Load taxonomy
+            self.log(f"Loading taxonomy: {os.path.basename(taxonomy_file)}")
+            df_taxonomy = pd.read_excel(taxonomy_file)
+            self.log(f"  Loaded {len(df_taxonomy)} taxonomy rows")
+
+            # Import the report generation functions
+            from generate_topic_recommendations import (
+                analyze_data_quality,
+                analyze_product_gaps,
+                generate_topic_recommendations,
+                generate_suggested_new_topics,
+                generate_topics_from_document_source,
+                generate_urls_by_product,
+                generate_impact_summary,
+                generate_topics_to_add,
+                generate_executive_summary,
+                sanitize_dataframe
+            )
+
+            # Generate all report components
+            self.log("Analyzing data quality...")
+            self.topic_rec_status_label.config(text="Analyzing data quality...", fg=self.colors['primary'])
+            self.root.update()
+            df_quality = analyze_data_quality(df_taxonomy, df_match)
+            self.log(f"  Found {len(df_quality)} data quality issues")
+
+            self.log("Analyzing product gaps...")
+            self.topic_rec_status_label.config(text="Analyzing product gaps...", fg=self.colors['primary'])
+            self.root.update()
+            df_gaps = analyze_product_gaps(df_match, df_taxonomy)
+            gaps_critical = len(df_gaps[df_gaps['Gap_Level'] == 'CRITICAL'])
+            gaps_high = len(df_gaps[df_gaps['Gap_Level'] == 'HIGH'])
+            self.log(f"  Found {gaps_critical} critical gaps, {gaps_high} high gaps")
+
+            self.log("Generating topic recommendations...")
+            self.topic_rec_status_label.config(text="Generating recommendations...", fg=self.colors['primary'])
+            self.root.update()
+            df_recs, all_taxonomy_topics = generate_topic_recommendations(df_match, df_taxonomy)
+            self.log(f"  Generated {len(df_recs)} topic recommendations")
+
+            self.log("Finding suggested new topics from match data...")
+            df_new_topics_match = generate_suggested_new_topics(df_match, all_taxonomy_topics, top_n=5)
+            self.log(f"  Found {len(df_new_topics_match)} from match data")
+
+            # Document source analysis (if provided)
+            if doc_source and os.path.exists(doc_source):
+                self.log(f"Analyzing document source: {os.path.basename(doc_source)}")
+                self.topic_rec_status_label.config(text="Analyzing document source...", fg=self.colors['primary'])
+                self.root.update()
+                df_new_topics_docs = generate_topics_from_document_source(doc_source, all_taxonomy_topics, top_n=10)
+                self.log(f"  Found {len(df_new_topics_docs)} from document source")
+                df_new_topics = pd.concat([df_new_topics_match, df_new_topics_docs], ignore_index=True)
+            else:
+                df_new_topics = df_new_topics_match
+                if doc_source:
+                    self.log(f"  Document source not found: {doc_source}")
+
+            self.log(f"  Total suggested new topics: {len(df_new_topics)}")
+
+            self.log("Generating URL breakdown by product...")
+            df_urls = generate_urls_by_product(df_match)
+
+            self.log("Generating impact summary...")
+            df_impact = generate_impact_summary(df_gaps, df_quality)
+
+            self.log("Generating specific topics to add...")
+            df_topics_to_add = generate_topics_to_add(df_recs, df_gaps)
+            self.log(f"  Generated {len(df_topics_to_add)} specific topic additions")
+
+            self.log("Generating executive summary...")
+            df_summary = generate_executive_summary(df_match, df_taxonomy, df_gaps, df_quality)
+
+            # Write to Excel
+            self.log(f"Writing report to: {output_file}")
+            self.topic_rec_status_label.config(text="Writing Excel file...", fg=self.colors['primary'])
+            self.root.update()
+
+            with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+                # Sanitize all DataFrames to prevent Excel corruption
+                sanitize_dataframe(df_summary).to_excel(writer, sheet_name='Executive Summary', index=False)
+                sanitize_dataframe(df_quality).to_excel(writer, sheet_name='Data Quality Issues', index=False)
+                sanitize_dataframe(df_gaps).to_excel(writer, sheet_name='Product Gap Analysis', index=False)
+                sanitize_dataframe(df_recs).to_excel(writer, sheet_name='Topic Recommendations', index=False)
+                sanitize_dataframe(df_new_topics).to_excel(writer, sheet_name='Suggested New Topics', index=False)
+                sanitize_dataframe(df_urls).to_excel(writer, sheet_name='URLs by Product', index=False)
+                sanitize_dataframe(df_impact).to_excel(writer, sheet_name='Impact Summary', index=False)
+                sanitize_dataframe(df_topics_to_add).to_excel(writer, sheet_name='Topics to Add', index=False)
+
+                # Apply formatting
+                try:
+                    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+                    from openpyxl.utils import get_column_letter
+
+                    header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+                    header_font = Font(bold=True, color='FFFFFF')
+                    thin_border = Border(
+                        left=Side(style='thin'), right=Side(style='thin'),
+                        top=Side(style='thin'), bottom=Side(style='thin')
+                    )
+
+                    for sheet_name in writer.sheets:
+                        ws = writer.sheets[sheet_name]
+                        for cell in ws[1]:
+                            cell.fill = header_fill
+                            cell.font = header_font
+                            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                            cell.border = thin_border
+
+                        for column in ws.columns:
+                            max_length = 0
+                            column_letter = get_column_letter(column[0].column)
+                            for cell in column:
+                                try:
+                                    if len(str(cell.value)) > max_length:
+                                        max_length = min(len(str(cell.value)), 50)
+                                except:
+                                    pass
+                            ws.column_dimensions[column_letter].width = max_length + 2
+                except Exception as fmt_error:
+                    self.log(f"  Warning: Could not apply formatting: {fmt_error}")
+
+            self.log("=" * 50)
+            self.log("Report generated successfully!")
+            self.log("=" * 50)
+
+            self.topic_rec_status_label.config(text="Complete!", fg=self.colors['secondary'])
+
+            # Show summary
+            summary_text = "\n".join([f"{row['Metric']}: {row['Value']}" for _, row in df_summary.iterrows()])
+            messagebox.showinfo(
+                "Success",
+                f"Report saved to:\n{output_file}\n\n"
+                f"Summary:\n{summary_text}"
+            )
+
+        except Exception as e:
+            self.log(f"ERROR generating topic recommendations report: {e}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.topic_rec_status_label.config(text="Error", fg=self.colors['error'])
+            messagebox.showerror("Error", f"Failed to generate report:\n{e}")
+
+        finally:
+            self.topic_rec_report_btn.config(state='normal')
+
+    # ==================== GAP ANALYSIS REPORT METHODS ====================
+
+    def _browse_gap_analysis_file(self, variable, title):
+        """Browse for input file for gap analysis report."""
+        file = filedialog.askopenfilename(
+            title=title,
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if file:
+            variable.set(file)
+
+    def _browse_gap_analysis_output(self):
+        """Browse for output file location."""
+        file = filedialog.asksaveasfilename(
+            title="Save Gap Analysis Report",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialfile=self.gap_analysis_output_file.get()
+        )
+        if file:
+            self.gap_analysis_output_file.set(file)
+
+    def generate_gap_analysis_report(self):
+        """Generate comprehensive taxonomy gap analysis report."""
+        from collections import Counter, defaultdict
+        from pathlib import Path
+        from fuzzywuzzy import fuzz
+        import re
+
+        # Validate inputs
+        match_file = self.gap_analysis_match_file.get()
+        taxonomy_file = self.gap_analysis_taxonomy_file.get()
+        semantic_file = self.gap_analysis_semantic_file.get()
+        output_file = self.gap_analysis_output_file.get()
+
+        if not match_file or not os.path.exists(match_file):
+            messagebox.showerror("Error", "Please select a valid Match File")
+            return
+
+        if not taxonomy_file or not os.path.exists(taxonomy_file):
+            messagebox.showerror("Error", "Please select a valid Taxonomy File")
+            return
+
+        if not output_file:
+            messagebox.showerror("Error", "Please specify an output file")
+            return
+
+        # Disable button during processing
+        self.gap_analysis_report_btn.config(state='disabled')
+        self.gap_analysis_status_label.config(text="Generating...", fg=self.colors['text'])
+        self.root.update()
+
+        try:
+            self.log("=" * 60)
+            self.log("GENERATING GAP ANALYSIS REPORT")
+            self.log("=" * 60)
+
+            # Load match file
+            self.log(f"Loading match file: {Path(match_file).name}")
+            try:
+                df_match = pd.read_excel(match_file, sheet_name='Cleaned')
+                self.log(f"  Loaded 'Cleaned' sheet: {len(df_match)} rows")
+            except:
+                df_match = pd.read_excel(match_file, sheet_name=0)
+                self.log(f"  Loaded first sheet: {len(df_match)} rows")
+
+            # Load taxonomy
+            self.log(f"Loading taxonomy: {Path(taxonomy_file).name}")
+            df_taxonomy = pd.read_excel(taxonomy_file)
+            self.log(f"  Loaded: {len(df_taxonomy)} rows")
+
+            # Load semantic file (optional)
+            df_semantic = None
+            if semantic_file and os.path.exists(semantic_file):
+                self.log(f"Loading semantic file: {Path(semantic_file).name}")
+                df_semantic = pd.read_excel(semantic_file)
+                self.log(f"  Loaded: {len(df_semantic)} rows")
+
+            # Helper function to sanitize cell values
+            import math
+            def sanitize_cell_value(value):
+                # Handle None, NaN, inf
+                if value is None:
+                    return ''
+                if isinstance(value, float):
+                    if pd.isna(value) or math.isinf(value):
+                        return ''
+                    return value
+                if isinstance(value, (int, bool)):
+                    return value
+
+                s = str(value)
+
+                # Return empty string for 'nan' or 'None' strings
+                if s.lower() in ('nan', 'none', 'null', '<na>'):
+                    return ''
+
+                # Remove null bytes first
+                s = s.replace('\x00', '')
+
+                # Remove ALL control characters (0x00-0x1F except tab, newline, carriage return)
+                # Also remove 0x7F (DEL) and 0x80-0x9F (C1 control codes)
+                s = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', s)
+
+                # Remove Unicode surrogate pairs (invalid in XML)
+                s = re.sub(r'[\ud800-\udfff]', '', s)
+
+                # Remove other problematic Unicode characters
+                s = re.sub(r'[\ufffe\uffff\ufeff]', '', s)
+
+                # Remove any remaining non-printable characters
+                s = ''.join(char for char in s if char.isprintable() or char in '\t\n\r')
+
+                # Truncate very long strings
+                if len(s) > 32000:
+                    s = s[:32000] + '...'
+
+                # Escape strings that look like formulas
+                if s and s[0] in '=+-@':
+                    s = "'" + s
+
+                return s.strip()
+
+            def sanitize_dataframe(df):
+                df = df.copy()
+                for col in df.columns:
+                    df[col] = df[col].apply(lambda x: sanitize_cell_value(x))
+                return df
+
+            # Get all taxonomy topics
+            self.log("Analyzing taxonomy topics...")
+            topic_cols = [c for c in df_taxonomy.columns if c.startswith('Topic')]
+            all_taxonomy_topics = set()
+            topic_to_product = {}
+            topic_to_segment = {}
+
+            for _, row in df_taxonomy.iterrows():
+                product = row.get('Product', 'Unknown')
+                segment = row.get('Segment', 'Unknown')
+                for col in topic_cols:
+                    val = row[col]
+                    if pd.notna(val) and str(val).strip():
+                        topic = str(val).strip().lower()
+                        all_taxonomy_topics.add(topic)
+                        topic_to_product[topic] = product
+                        topic_to_segment[topic] = segment
+
+            self.log(f"  Found {len(all_taxonomy_topics)} unique topics in taxonomy")
+
+            # Get matched topics from match file
+            self.log("Analyzing matched topics...")
+            match_topic_cols = [c for c in df_match.columns if c.startswith('Topic_') and c != 'Topic_Frequency_Penalty']
+            matched_topics = set()
+            topic_match_counts = Counter()
+
+            for _, row in df_match.iterrows():
+                for col in match_topic_cols:
+                    val = row[col]
+                    if pd.notna(val) and str(val).strip():
+                        topic = str(val).strip().lower()
+                        matched_topics.add(topic)
+                        topic_match_counts[topic] += 1
+
+            self.log(f"  Found {len(matched_topics)} unique topics in matches")
+
+            # === SHEET 1: EXECUTIVE SUMMARY ===
+            self.log("Generating Executive Summary...")
+            total_urls = df_match['URL'].nunique()
+            unmapped_urls = df_match[df_match['Domain'] == 'UNMAPPED']['URL'].nunique() if 'Domain' in df_match.columns else 0
+            match_rate = round((total_urls - unmapped_urls) / total_urls * 100, 1) if total_urls > 0 else 0
+            never_matched_count = len(all_taxonomy_topics - matched_topics)
+            phantom_count = len(matched_topics - all_taxonomy_topics)
+
+            df_summary = pd.DataFrame([
+                {'Metric': 'Report Generated', 'Value': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')},
+                {'Metric': '', 'Value': ''},
+                {'Metric': '=== MATCH RESULTS ===', 'Value': ''},
+                {'Metric': 'Total URLs Processed', 'Value': f'{total_urls:,}'},
+                {'Metric': 'Matched URLs', 'Value': f'{total_urls - unmapped_urls:,}'},
+                {'Metric': 'Unmapped URLs', 'Value': f'{unmapped_urls:,}'},
+                {'Metric': 'Match Rate', 'Value': f'{match_rate}%'},
+                {'Metric': '', 'Value': ''},
+                {'Metric': '=== TAXONOMY ANALYSIS ===', 'Value': ''},
+                {'Metric': 'Total Taxonomy Topics', 'Value': len(all_taxonomy_topics)},
+                {'Metric': 'Topics That Matched', 'Value': len(matched_topics & all_taxonomy_topics)},
+                {'Metric': 'Never-Matched Topics', 'Value': never_matched_count},
+                {'Metric': 'Phantom Topics', 'Value': phantom_count},
+                {'Metric': '', 'Value': ''},
+                {'Metric': '=== KEY FINDINGS ===', 'Value': ''},
+                {'Metric': 'Finding 1', 'Value': f'{never_matched_count} topics in taxonomy never matched any URL'},
+                {'Metric': 'Finding 2', 'Value': f'{phantom_count} topics in matches not found in taxonomy'},
+                {'Metric': 'Finding 3', 'Value': f'Match rate is {match_rate}%'},
+            ])
+
+            # === SHEET 2: PHANTOM TOPICS ===
+            self.log("Identifying Phantom Topics...")
+            phantom_data = []
+            for topic in matched_topics:
+                if topic not in all_taxonomy_topics:
+                    phantom_data.append({
+                        'Topic': topic.title(),
+                        'Match_Count': topic_match_counts.get(topic, 0),
+                        'Issue': 'Topic in matches but not in taxonomy',
+                        'Recommendation': 'Add to taxonomy or investigate source'
+                    })
+            df_phantom = pd.DataFrame(phantom_data)
+            if not df_phantom.empty:
+                df_phantom = df_phantom.sort_values('Match_Count', ascending=False)
+            self.log(f"  Found {len(df_phantom)} phantom topics")
+
+            # === SHEET 3: NEVER-MATCHED TOPICS ===
+            self.log("Identifying Never-Matched Topics...")
+            never_matched_data = []
+            for topic in all_taxonomy_topics:
+                if topic not in matched_topics:
+                    never_matched_data.append({
+                        'Topic': topic.title(),
+                        'Product': topic_to_product.get(topic, 'Unknown'),
+                        'Segment': topic_to_segment.get(topic, 'Unknown'),
+                        'Status': 'Never matched',
+                        'Recommendation': 'Add synonyms or review relevance'
+                    })
+            df_never_matched = pd.DataFrame(never_matched_data)
+            if not df_never_matched.empty:
+                df_never_matched = df_never_matched.sort_values(['Product', 'Topic'])
+            self.log(f"  Found {len(df_never_matched)} never-matched topics")
+
+            # === SHEET 4: TAXONOMY COMPARISON ===
+            self.log("Generating Taxonomy Comparison...")
+            df_comparison = pd.DataFrame([
+                {'Aspect': 'Total Topics in Taxonomy', 'Value': len(all_taxonomy_topics)},
+                {'Aspect': 'Topics That Matched', 'Value': len(matched_topics & all_taxonomy_topics)},
+                {'Aspect': 'Topics Never Matched', 'Value': never_matched_count},
+                {'Aspect': 'Coverage Rate', 'Value': f'{round(len(matched_topics & all_taxonomy_topics) / len(all_taxonomy_topics) * 100, 1)}%'},
+            ])
+
+            # === SHEET 5: SYNONYM RECOMMENDATIONS ===
+            self.log("Generating Synonym Recommendations...")
+            never_matched_set = all_taxonomy_topics - matched_topics
+
+            # Extract keywords from semantic file WITH URL tracking
+            keyword_counts = Counter()
+            keyword_urls = defaultdict(list)  # Track URLs for each keyword
+
+            if df_semantic is not None:
+                keyword_cols = [c for c in df_semantic.columns if 'keyword' in c.lower()]
+                url_col = 'URL' if 'URL' in df_semantic.columns else df_semantic.columns[0]
+
+                for _, row in df_semantic.iterrows():
+                    url = str(row.get(url_col, ''))
+                    for col in keyword_cols:
+                        val = row[col]
+                        if pd.notna(val) and str(val).strip():
+                            kw = str(val).strip().lower()
+                            keyword_counts[kw] += 1
+                            # Store up to 5 sample URLs per keyword
+                            if len(keyword_urls[kw]) < 5:
+                                keyword_urls[kw].append(url)
+
+            synonym_recs = []
+            for topic in never_matched_set:
+                suggested = []
+                for kw, freq in keyword_counts.most_common():
+                    if freq < 3:
+                        continue
+                    score = max(fuzz.ratio(topic, kw), fuzz.partial_ratio(topic, kw))
+                    if score >= 60:
+                        urls = keyword_urls.get(kw, [])
+                        suggested.append((kw, freq, score, urls))
+                suggested.sort(key=lambda x: (-x[2], -x[1]))
+
+                if suggested:
+                    kw_str = ', '.join([f"{kw} ({freq})" for kw, freq, _, _ in suggested[:5]])
+                    best_score = suggested[0][2]
+                    priority = 'HIGH' if best_score >= 75 else 'MEDIUM' if best_score >= 65 else 'LOW'
+
+                    # Collect sample URLs from top suggested keywords
+                    sample_urls = []
+                    for kw, freq, score, urls in suggested[:5]:
+                        sample_urls.extend(urls[:2])
+                    # Remove duplicates while preserving order
+                    seen = set()
+                    unique_urls = []
+                    for u in sample_urls:
+                        if u not in seen:
+                            seen.add(u)
+                            unique_urls.append(u)
+                    unique_urls = unique_urls[:5]  # Keep up to 5 full URLs
+
+                    rec = {
+                        'Taxonomy_Topic': topic.title(),
+                        'Status': 'In taxonomy - never matched',
+                        'Suggested_Synonyms': kw_str,
+                        'Priority': priority,
+                    }
+                    # Add up to 5 sample URLs as separate columns (clickable in Excel)
+                    for i, url in enumerate(unique_urls, start=1):
+                        rec[f'Sample_URL_{i}'] = url
+                    # Fill remaining URL columns with empty string
+                    for i in range(len(unique_urls) + 1, 6):
+                        rec[f'Sample_URL_{i}'] = ''
+                    synonym_recs.append(rec)
+
+            df_synonym_recs = pd.DataFrame(synonym_recs)
+            if not df_synonym_recs.empty:
+                priority_order = {'HIGH': 0, 'MEDIUM': 1, 'LOW': 2}
+                df_synonym_recs['_order'] = df_synonym_recs['Priority'].map(priority_order)
+                df_synonym_recs = df_synonym_recs.sort_values('_order').drop('_order', axis=1)
+            self.log(f"  Generated {len(df_synonym_recs)} synonym recommendations")
+
+            # === SHEET 6: PRODUCT BREAKDOWN ===
+            self.log("Generating Product Breakdown...")
+            product_stats = []
+            total_urls = df_match['URL'].nunique()
+            for product in df_match['Product'].unique():
+                if pd.isna(product):
+                    continue
+                product_data = df_match[df_match['Product'] == product]
+                unique_urls = product_data['URL'].nunique()
+                unmapped = len(product_data[product_data['Domain'] == 'UNMAPPED']) if 'Domain' in product_data.columns else 0
+                product_stats.append({
+                    'Product': product,
+                    'Unique_URLs': unique_urls,
+                    'Total_Rows': len(product_data),
+                    'Unmapped_Rows': unmapped,
+                    'Match_Rate': f'{round((len(product_data) - unmapped) / len(product_data) * 100, 1)}%' if len(product_data) > 0 else '0%',
+                    'Pct_of_Total': f'{round(unique_urls / total_urls * 100, 1)}%'
+                })
+            df_products = pd.DataFrame(product_stats)
+            if not df_products.empty:
+                df_products = df_products.sort_values('Unique_URLs', ascending=False)
+
+            # === SHEET 7: ACTION ITEMS ===
+            self.log("Generating Action Items...")
+            actions = []
+            action_id = 1
+            if len(df_phantom) > 0:
+                actions.append({'ID': action_id, 'Priority': 'P1-CRITICAL', 'Category': 'Data Quality',
+                               'Action': f'Investigate {len(df_phantom)} phantom topics', 'Impact': 'High'})
+                action_id += 1
+            high_priority_synonyms = len(df_synonym_recs[df_synonym_recs['Priority'] == 'HIGH']) if not df_synonym_recs.empty else 0
+            if high_priority_synonyms > 0:
+                actions.append({'ID': action_id, 'Priority': 'P1-HIGH', 'Category': 'Synonyms',
+                               'Action': f'Add synonyms for {high_priority_synonyms} HIGH-priority topics', 'Impact': 'High'})
+                action_id += 1
+            if never_matched_count > 10:
+                actions.append({'ID': action_id, 'Priority': 'P2-MEDIUM', 'Category': 'Review',
+                               'Action': f'Review {never_matched_count} never-matched topics', 'Impact': 'Medium'})
+            df_actions = pd.DataFrame(actions) if actions else pd.DataFrame([{'Message': 'No critical issues found'}])
+
+            # Write to Excel
+            self.log(f"Writing report to: {output_file}")
+            with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+                sanitize_dataframe(df_summary).to_excel(writer, sheet_name='Executive Summary', index=False)
+                sanitize_dataframe(df_phantom).to_excel(writer, sheet_name='Phantom Topics', index=False)
+                sanitize_dataframe(df_never_matched).to_excel(writer, sheet_name='Never-Matched Topics', index=False)
+                sanitize_dataframe(df_comparison).to_excel(writer, sheet_name='Taxonomy Comparison', index=False)
+                sanitize_dataframe(df_synonym_recs).to_excel(writer, sheet_name='Synonym Recommendations', index=False)
+                sanitize_dataframe(df_products).to_excel(writer, sheet_name='Product Breakdown', index=False)
+                sanitize_dataframe(df_actions).to_excel(writer, sheet_name='Action Items', index=False)
+
+                # Apply formatting
+                try:
+                    from openpyxl.styles import Font, PatternFill, Alignment
+                    header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+                    header_font = Font(bold=True, color='FFFFFF')
+                    for sheet_name in writer.sheets:
+                        ws = writer.sheets[sheet_name]
+                        for cell in ws[1]:
+                            cell.fill = header_fill
+                            cell.font = header_font
+                except:
+                    pass
+
+            self.log("=" * 60)
+            self.log("GAP ANALYSIS REPORT GENERATED SUCCESSFULLY!")
+            self.log(f"Output: {output_file}")
+            self.log("=" * 60)
+
+            self.gap_analysis_status_label.config(text="Complete!", fg=self.colors['secondary'])
+
+            messagebox.showinfo(
+                "Success",
+                f"Gap Analysis Report saved to:\n{output_file}\n\n"
+                f"Sheets generated:\n"
+                f"1. Executive Summary\n"
+                f"2. Phantom Topics ({len(df_phantom)})\n"
+                f"3. Never-Matched Topics ({len(df_never_matched)})\n"
+                f"4. Taxonomy Comparison\n"
+                f"5. Synonym Recommendations ({len(df_synonym_recs)})\n"
+                f"6. Product Breakdown ({len(df_products)})\n"
+                f"7. Action Items ({len(df_actions)})"
+            )
+
+        except Exception as e:
+            self.log(f"ERROR generating gap analysis report: {e}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.gap_analysis_status_label.config(text="Error", fg=self.colors['error'])
+            messagebox.showerror("Error", f"Failed to generate report:\n{e}")
+
+        finally:
+            self.gap_analysis_report_btn.config(state='normal')
 
 
 def main():
