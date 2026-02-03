@@ -3101,6 +3101,17 @@ class TaxonomyMapperGUI:
         )
         self.add_topic_btn.pack(padx=20, pady=(10, 5))
 
+        self.import_taxonomy_btn = tk.Button(
+            topic_card,
+            text="📥 Import from Taxonomy",
+            command=self.import_topics_from_taxonomy,
+            bg='#8b5cf6',  # Purple
+            fg='white',
+            **btn_style
+        )
+        self.import_taxonomy_btn.pack(padx=20, pady=5)
+        ToolTip(self.import_taxonomy_btn, "Import missing topics from taxonomy file")
+
         self.rename_topic_btn = tk.Button(
             topic_card,
             text="✏️ Rename Topic",
@@ -3584,6 +3595,258 @@ class TaxonomyMapperGUI:
 
         self.mark_as_changed()
         self.log(f"Added new topic: '{new_topic}'")
+
+    def import_topics_from_taxonomy(self):
+        """Import missing topics from a taxonomy file."""
+        # Check if synonyms are loaded
+        if not self.current_synonyms:
+            messagebox.showwarning("No Synonyms Loaded", "Please load synonyms first by selecting a country.")
+            return
+
+        # Ask user to select taxonomy file
+        taxonomy_path = filedialog.askopenfilename(
+            title="Select Taxonomy File to Import Topics From",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialdir=os.path.dirname(self.taxonomy_file.get()) if self.taxonomy_file.get() else None
+        )
+
+        if not taxonomy_path:
+            return
+
+        try:
+            # Load taxonomy and extract all unique topics
+            self.log(f"Loading taxonomy: {os.path.basename(taxonomy_path)}")
+            df_taxonomy = pd.read_excel(taxonomy_path)
+
+            # Find all Topic columns
+            topic_cols = [col for col in df_taxonomy.columns if col.startswith('Topic')]
+            if not topic_cols:
+                messagebox.showerror("Invalid Taxonomy", "No Topic columns found in taxonomy file")
+                return
+
+            # Extract all unique topics
+            taxonomy_topics = set()
+            for col in topic_cols:
+                for val in df_taxonomy[col].dropna():
+                    topic = str(val).strip()
+                    if topic:
+                        taxonomy_topics.add(topic)
+
+            self.log(f"Found {len(taxonomy_topics)} unique topics in taxonomy")
+
+            # Get current synonym topics
+            synonyms_dict = self.get_synonyms_dict()
+            current_topics = set(synonyms_dict.keys())
+
+            # Find missing topics (case-insensitive comparison)
+            current_topics_lower = {t.lower(): t for t in current_topics}
+            missing_topics = []
+            for topic in sorted(taxonomy_topics):
+                if topic.lower() not in current_topics_lower:
+                    missing_topics.append(topic)
+
+            if not missing_topics:
+                messagebox.showinfo("No Missing Topics",
+                    f"All {len(taxonomy_topics)} topics from taxonomy are already in synonyms file.")
+                return
+
+            self.log(f"Found {len(missing_topics)} topics missing from synonyms")
+
+            # Show dialog to select which topics to import
+            self._show_import_topics_dialog(missing_topics, len(taxonomy_topics))
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load taxonomy: {str(e)}")
+            self.log(f"Error loading taxonomy: {str(e)}")
+
+    def _show_import_topics_dialog(self, missing_topics, total_taxonomy_topics):
+        """Show dialog to select which missing topics to import."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Import Missing Topics")
+        dialog.geometry("500x600")
+        dialog.configure(bg=self.colors['background'])
+        dialog.grab_set()
+        dialog.focus_set()
+
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (600 // 2)
+        dialog.geometry(f"500x600+{x}+{y}")
+
+        # Header
+        tk.Label(
+            dialog,
+            text="📥 Import Missing Topics",
+            font=('Segoe UI', 14, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(pady=(15, 5))
+
+        tk.Label(
+            dialog,
+            text=f"Found {len(missing_topics)} topics in taxonomy that are not in synonyms file.\n"
+                 f"(Taxonomy has {total_taxonomy_topics} total topics)",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        ).pack(pady=(0, 10))
+
+        # Select all / Deselect all buttons
+        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
+        btn_frame.pack(fill='x', padx=20, pady=5)
+
+        # Track checkboxes
+        topic_vars = {}
+
+        def select_all():
+            for var in topic_vars.values():
+                var.set(True)
+
+        def deselect_all():
+            for var in topic_vars.values():
+                var.set(False)
+
+        tk.Button(
+            btn_frame,
+            text="Select All",
+            command=select_all,
+            font=('Segoe UI', 9),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left', padx=5)
+
+        tk.Button(
+            btn_frame,
+            text="Deselect All",
+            command=deselect_all,
+            font=('Segoe UI', 9),
+            bg=self.colors['text_light'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left', padx=5)
+
+        # Scrollable frame for checkboxes
+        container = tk.Frame(dialog, bg=self.colors['card'], relief='solid', bd=1)
+        container.pack(fill='both', expand=True, padx=20, pady=10)
+
+        canvas = tk.Canvas(container, bg=self.colors['card'], highlightthickness=0)
+        scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg=self.colors['card'])
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Enable mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        # Create checkboxes for each topic (all selected by default)
+        for topic in missing_topics:
+            var = tk.BooleanVar(value=True)
+            topic_vars[topic] = var
+
+            cb = tk.Checkbutton(
+                scrollable_frame,
+                text=topic,
+                variable=var,
+                font=('Segoe UI', 9),
+                bg=self.colors['card'],
+                fg=self.colors['text'],
+                selectcolor=self.colors['card'],
+                activebackground=self.colors['card'],
+                anchor='w'
+            )
+            cb.pack(fill='x', padx=10, pady=2)
+
+        # Import button
+        def do_import():
+            selected = [topic for topic, var in topic_vars.items() if var.get()]
+            if not selected:
+                messagebox.showwarning("No Selection", "Please select at least one topic to import.")
+                return
+
+            # Add selected topics to synonyms
+            synonyms_dict = self.get_synonyms_dict()
+            added_count = 0
+            for topic in selected:
+                if topic not in synonyms_dict:
+                    synonyms_dict[topic] = []
+                    self.all_topics.append(topic)
+                    added_count += 1
+
+            # Sort and refresh
+            self.all_topics.sort()
+            self.populate_topic_list(self.all_topics)
+            self.update_statistics()
+            self.mark_as_changed()
+
+            self.log(f"Imported {added_count} topics from taxonomy")
+            dialog.destroy()
+
+            messagebox.showinfo("Import Complete",
+                f"Successfully imported {added_count} topics.\n\n"
+                f"Remember to save changes to persist them.")
+
+        # Bottom buttons
+        bottom_frame = tk.Frame(dialog, bg=self.colors['background'])
+        bottom_frame.pack(fill='x', padx=20, pady=15)
+
+        tk.Button(
+            bottom_frame,
+            text="📥 Import Selected",
+            command=do_import,
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['secondary'],
+            fg='white',
+            relief='flat',
+            padx=20,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        tk.Button(
+            bottom_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            font=('Segoe UI', 10),
+            bg=self.colors['text_light'],
+            fg='white',
+            relief='flat',
+            padx=20,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        # Selection count label
+        count_label = tk.Label(
+            bottom_frame,
+            text=f"{len(missing_topics)} selected",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        )
+        count_label.pack(side='right', padx=10)
+
+        def update_count(*args):
+            selected_count = sum(1 for var in topic_vars.values() if var.get())
+            count_label.config(text=f"{selected_count} selected")
+
+        # Bind count update to each checkbox
+        for var in topic_vars.values():
+            var.trace_add('write', update_count)
 
     def rename_topic(self):
         """Rename selected topic."""
