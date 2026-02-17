@@ -5,6 +5,7 @@ NOW WITH MULTI-COUNTRY SUPPORT!
 """
 
 import pandas as pd
+import re
 from rapidfuzz import fuzz
 from typing import List, Dict, Tuple, Optional
 import os
@@ -12,12 +13,61 @@ import argparse
 from functools import lru_cache
 from country_config import CountryConfig
 
+# Pre-compiled regex for content keyword extraction (replaces 10-iteration loop)
+_SEPARATOR_PATTERN = re.compile(r'[-_/|:,.()\[\]]')
+
 
 # Module-level cached synonym expansion function
+@lru_cache(maxsize=10000)
+def _is_word_match(needle: str, haystack: str) -> bool:
+    """Check if needle appears as a complete word/phrase in haystack.
+
+    Rules:
+    - Exact match always works: "security" == "security"
+    - Single-word needle in multi-word haystack: needle must be a whole word
+      "security" in "security mapping" -> True (complete word)
+      "data" in "data validation" -> True (complete word)
+    - Multi-word needle in single-word haystack: haystack must be a word in needle
+      "security mapping" contains "security" -> True
+    - Both multi-word: needle must appear as complete phrase in haystack
+    """
+    if needle == haystack:
+        return True
+
+    needle_words = needle.split()
+    haystack_words = haystack.split()
+
+    if len(needle_words) == 1 and len(haystack_words) == 1:
+        # Both single words: must be exact
+        return False  # Already checked equality above
+
+    if len(needle_words) == 1 and len(haystack_words) > 1:
+        # Single-word needle in multi-word haystack:
+        # Allow if needle is a complete word in haystack
+        # e.g., "security" in "security mapping" -> True
+        return needle in haystack_words
+
+    if len(needle_words) > 1 and len(haystack_words) == 1:
+        # Multi-word needle, single-word haystack:
+        # Check if haystack word appears in needle
+        # e.g., keyword "security mapping" contains topic "security" -> expand
+        return haystack in needle_words
+
+    # Both multi-word: check if needle appears as complete phrase in haystack
+    n = len(needle_words)
+    for i in range(len(haystack_words) - n + 1):
+        if haystack_words[i:i + n] == needle_words:
+            return True
+    return False
+
+
 @lru_cache(maxsize=10000)
 def _expand_keyword_cached(keyword_lower: str, synonyms_tuple: tuple) -> tuple:
     """
     Cached synonym expansion. Returns tuple of variations for hashability.
+
+    Uses word boundary matching to prevent generic words like "data"
+    from matching synonyms like "data validation" via substring.
 
     Args:
         keyword_lower: Lowercase, stripped keyword
@@ -35,14 +85,28 @@ def _expand_keyword_cached(keyword_lower: str, synonyms_tuple: tuple) -> tuple:
 
         key_lower = key.lower()
 
-        # Original behavior: if topic name is in keyword, add synonyms
-        if key_lower in keyword_lower:
+        # Direction 1: If topic name appears as complete word(s) in keyword, add synonyms
+        # e.g., keyword "security mapping" contains word "security" (topic) -> add synonyms
+        # Rule: keyword must be >= topic length (keyword contains topic, not reverse)
+        #   "security mapping" contains "security" -> YES (keyword longer)
+        #   "data" contains "Data import" -> NO (keyword shorter than topic)
+        key_words = key_lower.split()
+        kw_words = keyword_lower.split()
+        if len(kw_words) >= len(key_words) and _is_word_match(key_lower, keyword_lower):
             variations.extend([s.lower() for s in synonyms])
 
-        # NEW: if keyword exactly matches a synonym, add the topic name
+        # Direction 2: If keyword exactly matches a synonym, add the topic name
+        # This is STRICT: keyword must fully match the synonym (not just be a word in it)
+        # Prevents "data" from matching synonym "data validation" -> topic "Data validation"
         for syn in synonyms:
             syn_lower = syn.lower()
-            if syn_lower == keyword_lower or syn_lower in keyword_lower:
+            if syn_lower == keyword_lower:
+                # Exact match: keyword IS the synonym
+                variations.append(key_lower)
+                break
+            # Multi-word keyword can match if synonym is a word in it
+            # e.g., keyword "audit workflows" contains synonym "workflows" -> add topic
+            elif len(keyword_lower.split()) > 1 and _is_word_match(syn_lower, keyword_lower):
                 variations.append(key_lower)
                 break
 
@@ -61,7 +125,10 @@ class TaxonomyMatcher:
                  consolidate_topics: Optional[bool] = None,
                  include_summary: bool = False,
                  top_n: int = 3,
-                 config_file: str = 'config.yaml'):
+                 config_file: str = 'config.yaml',
+                 debug: bool = False,
+                 max_rows: int = 0,
+                 url_filter: str = ''):
         """
         Initialize the TaxonomyMatcher.
 
@@ -74,6 +141,9 @@ class TaxonomyMatcher:
             consolidate_topics: Consolidate topics into columns (overrides config)
             include_summary: Extract keywords from Summary column if present
             config_file: Path to YAML configuration file
+            debug: Enable per-keyword trace output for debugging matches
+            max_rows: Limit processing to first N rows (0 = all)
+            url_filter: Only process URLs containing this text (empty = all)
         """
         # Load country configuration
         self.country_config = CountryConfig(config_file)
@@ -143,13 +213,43 @@ class TaxonomyMatcher:
         self.semantic_df = None
         self.taxonomy_df = None
         self.taxonomy_lookup = []
+
+        # Cache for URL keyword extraction (avoid redundant parsing)
+        self._url_keywords_cache = {}
+
+        # Debug and testing parameters
+        self.debug = debug
+        self.max_rows = max_rows
+        self.url_filter = url_filter.strip() if url_filter else ''
         
     def load_data(self):
         """Load Excel files into pandas DataFrames."""
         print(f"Loading {self.semantic_file}...")
         self.semantic_df = pd.read_excel(self.semantic_file)
-        print(f"  Loaded {len(self.semantic_df)} URLs")
-        
+        total_loaded = len(self.semantic_df)
+        print(f"  Loaded {total_loaded} URLs")
+
+        # Apply URL filter first (if set)
+        if self.url_filter:
+            before_count = len(self.semantic_df)
+            mask = self.semantic_df['URL'].astype(str).str.contains(
+                self.url_filter, case=False, regex=False
+            )
+            self.semantic_df = self.semantic_df[mask].copy()
+            after_count = len(self.semantic_df)
+            print(f"  URL filter '{self.url_filter}': {before_count} -> {after_count} rows")
+            if after_count == 0:
+                raise ValueError(
+                    f"URL filter '{self.url_filter}' matched 0 rows out of {before_count}. "
+                    f"Check the filter text and try again."
+                )
+
+        # Apply max rows limit second (within filtered set)
+        if self.max_rows > 0 and len(self.semantic_df) > self.max_rows:
+            before_count = len(self.semantic_df)
+            self.semantic_df = self.semantic_df.head(self.max_rows).copy()
+            print(f"  Max rows limit: {before_count} -> {len(self.semantic_df)} rows")
+
         print(f"\nLoading {self.taxonomy_file}...")
         self.taxonomy_df = pd.read_excel(self.taxonomy_file)
         print(f"  Loaded {len(self.taxonomy_df)} taxonomy entries")
@@ -204,6 +304,14 @@ class TaxonomyMatcher:
                 self._product_lookup[product] = []
             self._product_lookup[product].append(entry)
 
+        # Build (product, topic) indexed lookup for O(1) domain/segment lookups
+        # Used when reassigning "Something Else" topics to a specific product
+        self._product_topic_lookup = {}
+        for entry in self.taxonomy_lookup:
+            key = (entry['product'], entry['topic'])
+            if key not in self._product_topic_lookup:
+                self._product_topic_lookup[key] = entry
+
         # Pre-compute list of all topics (lowercase) for batch matching
         self._all_topics_lower = [entry['topic_lower'] for entry in self.taxonomy_lookup]
 
@@ -252,25 +360,57 @@ class TaxonomyMatcher:
 
         return False
 
-    def find_topic_matches(self, keyword: str, semantic_product: str = None) -> List[Dict]:
+    def find_topic_matches(self, keyword: str, semantic_product: str = None,
+                           track_near_misses: bool = False, source: str = 'unknown'):
         """
         Find matching topics for a given keyword.
+
+        Source-aware thresholds: Title keywords use a lower threshold (threshold - 10,
+        min 70) to catch near-matches that are still meaningful. URL keywords use the
+        normal threshold but get a "Low Trust" relevance label at borderline scores.
 
         Args:
             keyword: Keyword to match
             semantic_product: Product from semantic file to filter taxonomy rows (optional)
+            track_near_misses: If True, also return near-miss entries (score >= 50 but below threshold)
+            source: Keyword source — 'title', 'summary', 'description', 'url', or 'unknown'
 
         Returns:
-            List of matching taxonomy entries with similarity scores
+            List of matching taxonomy entries with similarity scores.
+            If track_near_misses=True, returns (matches, near_misses) tuple.
         """
+        # Source-specific thresholds
+        if source == 'title':
+            effective_threshold = max(70, self.similarity_threshold - 10)
+        else:
+            effective_threshold = self.similarity_threshold
+
         matches = []
+        near_misses = [] if track_near_misses else None
+        seen_topics = set()  # Track added topics to avoid duplicates
         keyword_variations = self.expand_with_synonyms(keyword)
 
-        for tax_entry in self.taxonomy_lookup:
-            # Filter by Product if semantic_product is provided
-            if semantic_product is not None:
-                if not self.should_match_product(semantic_product, tax_entry['product']):
-                    continue
+        # Fuzzy matching — all matches go through the threshold check
+        # OPTIMIZATION: Filter to relevant entries BEFORE the loop
+        # This reduces fuzzy comparisons by 50-80% when product is known
+        if semantic_product is not None:
+            # Get entries for the specific product
+            product_entries = self._product_lookup.get(semantic_product, [])
+            # Also include entries with empty product (matches any semantic product)
+            empty_product_entries = self._product_lookup.get('', [])
+            # Also include "Something Else" entries (matches any semantic product)
+            something_else_entries = self._product_lookup.get('Something Else', [])
+            # Combine all relevant entries
+            entries_to_check = product_entries + empty_product_entries + something_else_entries
+        else:
+            # No product filter - check all entries
+            entries_to_check = self.taxonomy_lookup
+
+        for tax_entry in entries_to_check:
+            # Skip duplicates
+            topic_key = (tax_entry['product'], tax_entry['topic'])
+            if topic_key in seen_topics:
+                continue
 
             # Use pre-computed lowercase topic
             topic_lower = tax_entry['topic_lower']
@@ -281,25 +421,39 @@ class TaxonomyMatcher:
                 score = fuzz.ratio(variation, topic_lower)
                 max_score = max(max_score, score)
 
-            if max_score >= self.similarity_threshold:
+            if max_score >= effective_threshold:
+                seen_topics.add(topic_key)
                 matches.append({
                     **tax_entry,
-                    'similarity_score': max_score
+                    'similarity_score': max_score,
+                })
+            elif track_near_misses and max_score >= 50:
+                near_misses.append({
+                    **tax_entry,
+                    'similarity_score': max_score,
+                    'rejection_reason': f'Below threshold ({max_score}% < {effective_threshold}%)'
                 })
 
         # Sort by similarity score (highest first)
         matches.sort(key=lambda x: x['similarity_score'], reverse=True)
+        if track_near_misses:
+            near_misses.sort(key=lambda x: x['similarity_score'], reverse=True)
+            return matches, near_misses
         return matches
     
     def extract_summary_terms(self, summary_text: str) -> List[str]:
         """
-        Extract meaningful terms from Summary column.
+        Extract meaningful multi-word phrases from Summary column.
+
+        Only extracts 2-3 word phrases (not single words) to avoid generic
+        terms like "data", "security", "guide" that trigger false matches
+        via synonym substring expansion.
 
         Args:
             summary_text: The summary text to extract terms from
 
         Returns:
-            List of extracted terms (max 20)
+            List of extracted phrases (max 15)
         """
         if pd.isna(summary_text) or not summary_text:
             return []
@@ -314,21 +468,37 @@ class TaxonomyMatcher:
                      'about', 'after', 'before', 'between', 'through', 'during',
                      'under', 'over', 'above', 'below', 'each', 'every', 'both',
                      'either', 'neither', 'other', 'another', 'some', 'any', 'all',
-                     'most', 'more', 'less', 'many', 'much', 'few', 'several'}
+                     'most', 'more', 'less', 'many', 'much', 'few', 'several',
+                     'not', 'but', 'if', 'so', 'no', 'nor', 'too', 'very',
+                     'just', 'only', 'own', 'same', 'how', 'what', 'why',
+                     'does', 'did', 'do', 'was', 'were', 'had', 'need',
+                     'provides', 'including', 'ensure', 'using', 'based',
+                     'within', 'without', 'along', 'among', 'upon'}
 
-        terms = []
+        # Clean words
         words = str(summary_text).lower().split()
+        clean_words = []
+        for w in words:
+            w = w.strip('.,!?;:()[]{}"\'-')
+            if w and not w.isdigit():
+                clean_words.append(w)
 
-        for word in words:
-            # Remove punctuation
-            word = word.strip('.,!?;:()[]{}"\'-')
-            # Filter by length, stopwords, and digits
-            if len(word) >= 4 and word not in stopwords and not word.isdigit():
-                terms.append(word)
+        # Extract 2-3 word phrases where all words are meaningful
+        phrases = []
+        seen = set()
+        for n in [2, 3]:
+            for i in range(len(clean_words) - n + 1):
+                ngram = clean_words[i:i + n]
+                # All words must be non-stopwords and >= 3 chars
+                if all(w not in stopwords and len(w) >= 3 for w in ngram):
+                    phrase = ' '.join(ngram)
+                    if phrase not in seen:
+                        seen.add(phrase)
+                        phrases.append(phrase)
 
-        return terms[:20]  # Limit to 20 terms
+        return phrases[:15]  # Limit to 15 phrases
 
-    def extract_keywords(self, row) -> List[str]:
+    def extract_keywords(self, row):
         """
         Extract all keywords from a semantic carriers row.
 
@@ -336,23 +506,57 @@ class TaxonomyMatcher:
             row: DataFrame row
 
         Returns:
-            List of keywords
+            Tuple of (keywords, sources) — parallel lists.
+            source is 'title'/'summary'/'description'/'url'/'unknown' (from Source N column if present).
+            Backward compatible: files without Source columns return 'unknown' for all sources.
         """
         keywords = []
+        sources = []
 
         # Extract from Keyword 1 through Keyword 12 (if present)
         for i in range(1, 13):
             col_name = f'Keyword {i}'
+            src_col = f'Source {i}'
             if col_name in row.index and pd.notna(row[col_name]):
-                keywords.append(str(row[col_name]).strip())
+                kw = str(row[col_name]).strip()
+                if kw:
+                    keywords.append(kw)
+                    # Read source if available, otherwise default to 'unknown'
+                    if src_col in row.index and pd.notna(row[src_col]):
+                        src = str(row[src_col]).strip().lower()
+                        sources.append(src if src else 'unknown')
+                    else:
+                        sources.append('unknown')
 
-        # Optionally extract from Summary column
+        # Optionally extract from Summary column (treated as 'summary' source)
         if self.include_summary and 'Summary' in row.index:
             summary_terms = self.extract_summary_terms(row['Summary'])
             keywords.extend(summary_terms)
+            sources.extend(['summary'] * len(summary_terms))
 
-        return keywords
-    
+        return keywords, sources
+
+    def clean_url(self, url: str) -> str:
+        """
+        Clean URL by stripping anchor fragments (#...).
+
+        This is done BEFORE matching to ensure clean URLs are used for
+        keyword extraction, relevance calculation, and deduplication.
+
+        Args:
+            url: Original URL
+
+        Returns:
+            URL with anchor fragment removed
+        """
+        if not url or pd.isna(url):
+            return ''
+        url = str(url)
+        # Strip anchor fragment (everything after #)
+        if '#' in url:
+            url = url.split('#')[0]
+        return url
+
     def process_matching(self) -> pd.DataFrame:
         """
         Main processing: match all URLs to taxonomy topics.
@@ -367,11 +571,18 @@ class TaxonomyMatcher:
         total_urls = len(self.semantic_df)
         urls_with_matches = 0
         unmapped_urls = []
-        product_matches_added = 0  # Track how many product-based matches were added
+        urls_cleaned = 0  # Track how many URLs had anchors stripped
+
+        # Near-miss tracking for keyword recommendations
+        self._keyword_near_misses = {}
 
         for idx, row in self.semantic_df.iterrows():
-            url = row.get('URL', '')
-            keywords = self.extract_keywords(row)
+            original_url = row.get('URL', '')
+            # Clean URL by stripping anchor fragments BEFORE any processing
+            url = self.clean_url(original_url)
+            if url != original_url:
+                urls_cleaned += 1
+            keywords, sources = self.extract_keywords(row)
 
             # Get Product from semantic file for filtering
             semantic_product = row.get('Product', None)
@@ -381,27 +592,57 @@ class TaxonomyMatcher:
             description = row.get('Description', '') if pd.notna(row.get('Description', '')) else ''
             summary = row.get('Summary', '') if pd.notna(row.get('Summary', '')) else ''
 
+            if self.debug:
+                print(f"\n[DEBUG] === URL: {url} ===")
+                sem_prod_str = semantic_product if semantic_product and not pd.isna(semantic_product) else '(none)'
+                print(f"[DEBUG] Product: {sem_prod_str}")
+                kw_src_pairs = list(zip(keywords, sources))
+                print(f"[DEBUG] Keywords ({len(keywords)}): {kw_src_pairs}")
+
             url_has_match = False
             had_matches_before_product_filter = False
-            has_product_domain_match = False  # Track if we got a match from product's own domain
 
-            # Process each keyword
-            for keyword in keywords:
-                matches = self.find_topic_matches(keyword, semantic_product)
+            # Track which keywords produced matches for Unmatched_Keywords column
+            matched_keywords = set()
+            url_result_start_idx = len(results)
+
+            # Process each keyword with its source
+            for keyword, source in zip(keywords, sources):
+                if self.debug:
+                    # Show synonym expansion
+                    expanded = self.expand_with_synonyms(keyword)
+                    added_syns = [v for v in expanded if v.lower() != keyword.lower().strip()]
+                    if source != 'unknown':
+                        src_tag = f'[{source}]'
+                    else:
+                        src_tag = ''
+                    if added_syns:
+                        print(f"[DEBUG]   KW '{keyword}'{src_tag} -> expanded with: {added_syns}")
+                    else:
+                        print(f"[DEBUG]   KW '{keyword}'{src_tag} -> no synonym expansion")
+
+                matches = self.find_topic_matches(keyword, semantic_product, source=source)
+
+                if self.debug:
+                    if matches:
+                        for m in matches:
+                            print(f"[DEBUG]     MATCH: '{m['topic']}' score={m['similarity_score']} ({m['product']}/{m['segment']})")
+                    else:
+                        # Show nearest miss for unmatched keywords
+                        _, debug_near_misses = self.find_topic_matches(keyword, semantic_product, track_near_misses=True, source=source)
+                        eff_thresh = max(70, self.similarity_threshold - 10) if source == 'title' else self.similarity_threshold
+                        print(f"[DEBUG]     NO MATCH (below {eff_thresh}% threshold, source={source})")
+                        if debug_near_misses:
+                            best_miss = max(debug_near_misses, key=lambda x: x['similarity_score'])
+                            print(f"[DEBUG]     Nearest miss: '{best_miss['topic']}' score={best_miss['similarity_score']}")
 
                 # Check if there would be matches without product filter
                 if not matches and semantic_product:
-                    unfiltered_matches = self.find_topic_matches(keyword, None)
+                    unfiltered_matches = self.find_topic_matches(keyword, None, source=source)
                     if unfiltered_matches:
                         had_matches_before_product_filter = True
 
                 for match in matches:
-                    # Track if this match is from the product's ORIGINAL taxonomy row
-                    # (before any "Something Else" override)
-                    original_product = match['product']
-                    if semantic_product and original_product == semantic_product:
-                        has_product_domain_match = True
-
                     # Override "Something Else" with product detected from URL
                     product = match['product']
                     domain = match['domain']
@@ -410,12 +651,12 @@ class TaxonomyMatcher:
                         url_product = self.extract_product_from_url(url)
                         if url_product:
                             product = url_product
-                            # Reassess Domain/Segment: find this topic under the new product
-                            for entry in self.taxonomy_lookup:
-                                if entry['product'] == url_product and entry['topic'] == match['topic']:
-                                    domain = entry['domain']
-                                    segment = entry['segment']
-                                    break
+                            # Reassess Domain/Segment: use O(1) lookup instead of linear scan
+                            lookup_key = (url_product, match['topic'])
+                            if lookup_key in self._product_topic_lookup:
+                                entry = self._product_topic_lookup[lookup_key]
+                                domain = entry['domain']
+                                segment = entry['segment']
 
                     # Create unique combination key for deduplication
                     combo_key = (url, product, domain,
@@ -434,34 +675,63 @@ class TaxonomyMatcher:
                             'Segment': segment,
                             'Topic': match['topic'],
                             'Score': match['similarity_score'],
+                            'Source': source,
                             'Unmapped_Reason': ''
                         })
                         url_has_match = True
+                        matched_keywords.add(keyword)
 
-            # ENSURE PRODUCT DOMAIN MATCH: If we have a known product but no matches
-            # from that product's own taxonomy row, add the best product-based match
-            if semantic_product and not has_product_domain_match and keywords:
-                product_match = self.find_best_product_match(keywords, semantic_product)
-                if product_match:
-                    combo_key = (url, product_match['product'], product_match['domain'],
-                                product_match['segment'], product_match['topic'])
+            # Compute unmatched keywords and backfill all result rows for this URL
+            unmatched_pairs = [(kw, src) for kw, src in zip(keywords, sources) if kw not in matched_keywords]
+            unmatched = [kw for kw, _ in unmatched_pairs]
+            if self.debug and unmatched:
+                print(f"[DEBUG]   Unmatched keywords: {unmatched}")
+            unmatched_str = ', '.join(unmatched)
+            for i in range(url_result_start_idx, len(results)):
+                results[i]['Unmatched_Keywords'] = unmatched_str
 
-                    if combo_key not in seen_combinations:
-                        seen_combinations.add(combo_key)
-                        results.append({
-                            'URL': url,
-                            'Title': title,
-                            'Description': description,
-                            'Summary': summary,
-                            'Product': product_match['product'],
-                            'Domain': product_match['domain'],
-                            'Segment': product_match['segment'],
-                            'Topic': product_match['topic'],
-                            'Score': product_match['similarity_score'],
-                            'Unmapped_Reason': ''
-                        })
-                        url_has_match = True
-                        product_matches_added += 1
+            # Track near-misses for unmatched keywords (for Keyword Recommendations)
+            for kw, src in unmatched_pairs:
+                _, near_miss_list = self.find_topic_matches(kw, semantic_product, track_near_misses=True, source=src)
+
+                # Check if product filter excluded matches
+                if semantic_product:
+                    unfiltered = self.find_topic_matches(kw, None, source=src)
+                    filtered = self.find_topic_matches(kw, semantic_product, source=src)
+                    if unfiltered and not filtered:
+                        for m in unfiltered[:1]:
+                            near_miss_list.append({
+                                **m,
+                                'rejection_reason': f'Product filtered (exists in {m["product"]})'
+                            })
+
+                key = kw.lower().strip()
+                if key not in self._keyword_near_misses:
+                    self._keyword_near_misses[key] = {
+                        'keyword': kw,
+                        'nearest_topic': None,
+                        'nearest_score': 0,
+                        'nearest_product': '',
+                        'nearest_domain': '',
+                        'nearest_segment': '',
+                        'rejection_reason': 'No close match (<50%)',
+                        'urls': [],
+                        'frequency': 0
+                    }
+                entry = self._keyword_near_misses[key]
+                entry['frequency'] += 1
+                if len(entry['urls']) < 5:
+                    entry['urls'].append(url)
+
+                if near_miss_list:
+                    best = max(near_miss_list, key=lambda x: x['similarity_score'])
+                    if best['similarity_score'] > entry['nearest_score']:
+                        entry['nearest_topic'] = best['topic']
+                        entry['nearest_score'] = best['similarity_score']
+                        entry['nearest_product'] = best['product']
+                        entry['nearest_domain'] = best['domain']
+                        entry['nearest_segment'] = best['segment']
+                        entry['rejection_reason'] = best.get('rejection_reason', 'Below threshold')
 
             if url_has_match:
                 urls_with_matches += 1
@@ -486,7 +756,9 @@ class TaxonomyMatcher:
                     'Segment': '',
                     'Topic': '',
                     'Score': 0,
-                    'Unmapped_Reason': unmapped_reason
+                    'Exact_Match': False,
+                    'Unmapped_Reason': unmapped_reason,
+                    'Unmatched_Keywords': unmatched_str
                 })
             
             # Progress indicator
@@ -496,7 +768,8 @@ class TaxonomyMatcher:
         print(f"\nMatching complete!")
         print(f"  URLs with matches: {urls_with_matches}/{total_urls} ({urls_with_matches/total_urls*100:.1f}%)")
         print(f"  Unmapped URLs: {len(unmapped_urls)}/{total_urls} ({len(unmapped_urls)/total_urls*100:.1f}%)")
-        print(f"  Product domain matches added: {product_matches_added} (guaranteed product domain coverage)")
+        if urls_cleaned > 0:
+            print(f"  URLs cleaned (anchors stripped): {urls_cleaned}")
         print(f"  Total output rows: {len(results)}")
         print(f"  Average matches per URL: {len(results)/total_urls:.2f}")
         
@@ -512,6 +785,7 @@ class TaxonomyMatcher:
     def extract_url_keywords(self, url: str) -> set:
         """
         Extract meaningful words from URL path for relevance checking.
+        Uses caching to avoid redundant URL parsing.
 
         Args:
             url: The URL to extract keywords from
@@ -519,19 +793,30 @@ class TaxonomyMatcher:
         Returns:
             Set of lowercase keywords from the URL path
         """
-        from urllib.parse import urlparse
+        # Check cache first
+        if url in self._url_keywords_cache:
+            return self._url_keywords_cache[url]
+
+        import re
+        from urllib.parse import urlparse, unquote
         try:
-            path = urlparse(url).path
+            path = urlparse(unquote(unquote(url))).path
         except Exception:
             path = url  # Fallback to using the URL as-is
 
         # Split by / and _ to get individual words
         words = []
         for segment in path.split('/'):
-            # Split each segment by underscore
-            words.extend(segment.split('_'))
-            # Also split by hyphen
-            words.extend(segment.split('-'))
+            # Replace separators with spaces
+            segment_cleaned = segment.replace('_', ' ').replace('-', ' ').replace('+', ' ')
+            for w in segment_cleaned.split():
+                # Strip leading numeric prefixes (e.g., "15Journals" -> "Journals")
+                w = re.sub(r'^\d+', '', w)
+                if not w:
+                    continue
+                # CamelCase split (e.g., "ChartOfAccounts" -> ["Chart", "Of", "Accounts"])
+                camel_parts = re.split(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', w)
+                words.extend(camel_parts)
 
         # Clean and lowercase, filter short words (<=2 chars) and numbers
         keywords = set()
@@ -540,6 +825,8 @@ class TaxonomyMatcher:
             if len(w_clean) > 2 and not w_clean.isdigit():
                 keywords.add(w_clean)
 
+        # Cache the result
+        self._url_keywords_cache[url] = keywords
         return keywords
 
     def extract_product_from_url(self, url: str) -> str:
@@ -630,14 +917,21 @@ class TaxonomyMatcher:
 
         return None
 
-    def calculate_relevance(self, score: int, topic: str = None, url_keywords: set = None) -> str:
+    def calculate_relevance(self, score: int, topic: str = None, url_keywords: set = None,
+                            source: str = 'unknown') -> str:
         """
-        Calculate relevance category using score AND URL content analysis (hybrid approach).
+        Calculate relevance category using score, URL content analysis, and keyword source.
+
+        Source-aware rules:
+        - 'title' keywords: lower threshold (70+) and one-tier relevance boost when not in URL
+        - 'url' keywords: score 80-84 not in URL → 'Low Trust' instead of 'Low Relevance'
+        - Other sources: standard hybrid relevance
 
         Args:
             score: Similarity score (0-100)
             topic: The matched topic name (optional, for URL content check)
             url_keywords: Set of keywords extracted from URL (optional)
+            source: Keyword source — 'title', 'summary', 'description', 'url', or 'unknown'
 
         Returns:
             Relevance category string
@@ -665,13 +959,19 @@ class TaxonomyMatcher:
             return 'Best Match'
         elif score >= 85 and topic_in_url:
             return 'Highly Relevant'
+        elif score >= 70 and topic_in_url and source == 'title':
+            return 'Highly Relevant'  # Boosted: title keyword with topic in URL
         elif topic_in_url:
             return 'Relevant'
         elif score >= 90:
             return 'Somewhat Relevant'
         elif score >= 85:
             return 'Tangential'
+        elif score >= 70 and source == 'title':
+            return 'Tangential'  # Boosted: title keyword, not in URL but meaningful match
         elif score >= 80:
+            if source == 'url':
+                return 'Low Trust'  # URL path keywords at borderline scores are less reliable
             return 'Low Relevance'
         elif score > 0:
             return 'Weak'
@@ -712,6 +1012,7 @@ class TaxonomyMatcher:
         for (url, product, domain, segment), group in grouped:
             topics = group['Topic'].tolist()  # Preserves discovery order
             scores = group['Score'].tolist()  # Get corresponding scores
+            group_sources = group['Source'].tolist() if 'Source' in group.columns else ['unknown'] * len(topics)
 
             # Get Title, Description, Summary from first row of group (same for all rows with same URL)
             title = group['Title'].iloc[0] if 'Title' in group.columns else ''
@@ -719,17 +1020,17 @@ class TaxonomyMatcher:
             summary = group['Summary'].iloc[0] if 'Summary' in group.columns else ''
 
             # Filter out auto-added segment topics (segment name should not appear as topic)
-            # Keep topics and scores paired during filtering
-            filtered_pairs = [(t, s) for t, s in zip(topics, scores) if t != segment]
+            filtered_triples = [(t, s, src) for t, s, src in zip(topics, scores, group_sources) if t != segment]
 
             # Skip rows with no actual topics (only had segment-as-topic)
-            if not filtered_pairs:
+            if not filtered_triples:
                 continue
 
-            # Unzip the filtered pairs
-            topics, scores = zip(*filtered_pairs)
+            # Unzip the filtered triples
+            topics, scores, group_sources = zip(*filtered_triples)
             topics = list(topics)
             scores = list(scores)
+            group_sources = list(group_sources)
 
             max_topics = max(max_topics, len(topics))
 
@@ -752,13 +1053,15 @@ class TaxonomyMatcher:
             top_idx = scores.index(max(scores))
             top_score = scores[top_idx]
             top_topic = topics[top_idx]
+            top_source = group_sources[top_idx]
 
             # Extract keywords from URL for hybrid relevance calculation
             url_keywords = self.extract_url_keywords(url)
 
             row['Top_Score'] = top_score
-            row['Top_Relevance'] = self.calculate_relevance(top_score, top_topic, url_keywords)
+            row['Top_Relevance'] = self.calculate_relevance(top_score, top_topic, url_keywords, source=top_source)
             row['Unmapped_Reason'] = ''  # Matched rows have no unmapped reason
+            row['Unmatched_Keywords'] = group['Unmatched_Keywords'].iloc[0] if 'Unmatched_Keywords' in group.columns else ''
 
             consolidated_rows.append(row)
 
@@ -772,28 +1075,59 @@ class TaxonomyMatcher:
                 domain = str(row.get('Domain', '')).strip()
                 is_general_domain = domain.lower() in ['general', 'general ']
                 product_matches = url_product and row['Product'] == url_product
+                score = row.get('Top_Score', 0)
 
-                # Priority levels (lower = better):
-                # 0 = Product matches AND Domain is product-specific (not General) - BOOSTED
-                # 1 = Product matches AND Domain is General
-                # 2 = Product doesn't match
-                if product_matches and not is_general_domain:
-                    product_priority = 0  # Boost product-specific domain to top
-                elif product_matches:
-                    product_priority = 1  # Product matches but General domain
-                else:
-                    product_priority = 2  # Product doesn't match
-
-                # Tiebreaker: count topic words found in URL
+                # Check if topic appears in content (URL, Title, Summary, Description)
+                # This validates relevance beyond just fuzzy matching
                 url_kw = self.extract_url_keywords(row['URL'])
+
+                # Also extract keywords from Title, Summary, Description
+                content_keywords = set(url_kw)
+                for field in ['Title', 'Summary', 'Description']:
+                    field_val = row.get(field, '')
+                    if pd.notna(field_val) and str(field_val).strip():
+                        # Extract words from field using pre-compiled regex (single pass)
+                        field_text = _SEPARATOR_PATTERN.sub(' ', str(field_val).lower())
+                        content_keywords.update(w for w in field_text.split() if len(w) >= 3)
+
+                # Count topic words found in content
                 relevance_count = 0
+                topic_found_in_content = False
                 for col in [c for c in row.index if c.startswith('Topic_')]:
                     if pd.notna(row[col]) and row[col] != '':
                         topic_words = set(str(row[col]).lower().split())
-                        relevance_count += len(topic_words & url_kw)
+                        matches_found = len(topic_words & content_keywords)
+                        relevance_count += matches_found
+                        if matches_found > 0:
+                            topic_found_in_content = True
+
+                # Priority levels (lower = better):
+                # 0 = Product matches AND Domain is product-specific AND (topic in content OR score >= 80%)
+                # 1 = Product matches AND Domain is General AND topic in content
+                # 2 = Product matches but topic NOT in content (weak relevance)
+                # 3 = Product doesn't match
+                # 4 = Weak score AND topic NOT in content (demoted - likely irrelevant)
+
+                if product_matches and not is_general_domain:
+                    if topic_found_in_content or score >= 80:
+                        product_priority = 0  # Boost: product-specific + validated relevance
+                    else:
+                        product_priority = 2  # Demote: product-specific but unvalidated weak match
+                elif product_matches:
+                    if topic_found_in_content:
+                        product_priority = 1  # General domain but topic confirmed in content
+                    else:
+                        product_priority = 2  # General domain, topic not in content
+                else:
+                    product_priority = 3  # Product doesn't match
+
+                # Further demote weak scores with no content validation
+                if score < 75 and not topic_found_in_content:
+                    product_priority = 4  # Likely irrelevant match
+
                 return pd.Series({
                     '_prod_priority': product_priority,
-                    '_neg_score': -row.get('Top_Score', 0),
+                    '_neg_score': -score,
                     '_neg_url_rel': -relevance_count
                 })
 
@@ -830,12 +1164,14 @@ class TaxonomyMatcher:
                 unmapped = unmapped.drop('Topic', axis=1)
             if 'Score' in unmapped.columns:
                 unmapped = unmapped.drop('Score', axis=1)
+            if 'Exact_Match' in unmapped.columns:
+                unmapped = unmapped.drop('Exact_Match', axis=1)  # safety cleanup if present
             consolidated_df = pd.concat([consolidated_df, unmapped], ignore_index=True)
 
-        # Reorder columns: URL, Title, Description, Summary, Product, Domain, Segment, Topic_1...Topic_N, Top_Score, Top_Relevance, Unmapped_Reason, Rank
+        # Reorder columns: URL, Title, Description, Summary, Product, Domain, Segment, Topic_1...Topic_N, Top_Score, Top_Relevance, Unmapped_Reason, Unmatched_Keywords, Rank
         base_cols = ['URL', 'Title', 'Description', 'Summary', 'Product', 'Domain', 'Segment']
         topic_cols = [f'Topic_{i}' for i in range(1, max_topics + 1)]
-        score_cols = ['Top_Score', 'Top_Relevance', 'Unmapped_Reason', 'Rank']
+        score_cols = ['Top_Score', 'Top_Relevance', 'Unmapped_Reason', 'Unmatched_Keywords', 'Rank']
         final_col_order = base_cols + topic_cols + score_cols
         # Only include columns that exist in the dataframe
         final_col_order = [c for c in final_col_order if c in consolidated_df.columns]
@@ -847,22 +1183,144 @@ class TaxonomyMatcher:
 
     def save_output(self, results_df: pd.DataFrame):
         """
-        Save results to Excel file.
-        
+        Save results to Excel file with keyword recommendations.
+
         Args:
             results_df: DataFrame with matched results
         """
+        from generate_topic_recommendations import sanitize_dataframe
+
         print(f"\nSaving results to {self.output_file}...")
-        results_df.to_excel(self.output_file, index=False)
+
+        # Generate keyword recommendations
+        self._recommendations_df = self.generate_keyword_recommendations()
+
+        # Write with ExcelWriter for multi-sheet support
+        with pd.ExcelWriter(self.output_file, engine='openpyxl') as writer:
+            sanitize_dataframe(results_df).to_excel(writer, sheet_name='Results', index=False)
+            if self._recommendations_df is not None and len(self._recommendations_df) > 0:
+                sanitize_dataframe(self._recommendations_df).to_excel(
+                    writer, sheet_name='Keyword Recommendations', index=False
+                )
+
+        # Print keyword recommendations summary
+        if self._recommendations_df is not None and len(self._recommendations_df) > 0:
+            rec_df = self._recommendations_df
+            total_near_misses = len(getattr(self, '_keyword_near_misses', {}))
+            high_count = len(rec_df[rec_df['Priority'] == 'HIGH'])
+            medium_count = len(rec_df[rec_df['Priority'] == 'MEDIUM'])
+            new_topic_count = len(rec_df[rec_df['Recommendation'] == 'Consider new topic'])
+            noise_filtered = total_near_misses - len(rec_df)
+            print(f"\nKeyword Recommendations: {total_near_misses} unmatched keywords analyzed")
+            print(f"  HIGH priority (add as synonym): {high_count}")
+            print(f"  MEDIUM priority (review): {medium_count}")
+            print(f"  New topic candidates: {new_topic_count}")
+            print(f"  Noise filtered: {noise_filtered}")
+
         print(f"Output saved successfully!")
         print(f"  File: {os.path.abspath(self.output_file)}")
-        
+
         # Show unmapped count in output
         unmapped_count = len(results_df[results_df['Domain'] == 'UNMAPPED'])
         if unmapped_count > 0:
             print(f"[!] Note: {unmapped_count} unmapped URLs included in output")
             print(f"    Filter by Domain='UNMAPPED' to review these URLs")
     
+    def generate_keyword_recommendations(self) -> Optional[pd.DataFrame]:
+        """
+        Generate keyword recommendations from near-miss data collected during matching.
+
+        Processes self._keyword_near_misses into a DataFrame with actionable recommendations
+        for each unmatched keyword (add as synonym, consider new topic, or noise).
+
+        Returns:
+            DataFrame with keyword recommendations, or None if no data
+        """
+        if not hasattr(self, '_keyword_near_misses') or not self._keyword_near_misses:
+            return None
+
+        rows = []
+        threshold = self.similarity_threshold
+
+        for key, entry in self._keyword_near_misses.items():
+            keyword = entry['keyword']
+            frequency = entry['frequency']
+            nearest_topic = entry['nearest_topic'] or ''
+            nearest_score = entry['nearest_score']
+            rejection_reason = entry['rejection_reason']
+            nearest_product = entry['nearest_product']
+            nearest_domain = entry['nearest_domain']
+            nearest_segment = entry['nearest_segment']
+
+            # Check if keyword is already a synonym for the nearest topic
+            already_in_synonyms = 'No'
+            if nearest_topic:
+                topic_synonyms = self.synonyms.get(nearest_topic, [])
+                if keyword.lower() in [s.lower() for s in topic_synonyms]:
+                    already_in_synonyms = 'Yes'
+
+            # Classification logic
+            if 'Product filtered' in rejection_reason:
+                recommendation = f'Exists in other product ({nearest_product}) - check taxonomy structure'
+                priority = 'MEDIUM'
+            elif nearest_score >= (threshold - 5) and frequency >= 3:
+                recommendation = f'Add as synonym to [{nearest_topic}]'
+                priority = 'HIGH'
+            elif nearest_score >= (threshold - 15) and frequency >= 2:
+                recommendation = f'Add as synonym to [{nearest_topic}]'
+                priority = 'MEDIUM'
+            elif nearest_score >= 50:
+                recommendation = f'Review - possible synonym for [{nearest_topic}]'
+                priority = 'LOW'
+            elif frequency >= 5 and nearest_score < 50:
+                recommendation = 'Consider new topic'
+                priority = 'MEDIUM'
+            else:
+                recommendation = 'Noise - ignore'
+                priority = 'NOISE'
+
+            row = {
+                'Keyword': keyword,
+                'Frequency': frequency,
+                'Nearest_Topic': nearest_topic,
+                'Nearest_Score': nearest_score,
+                'Rejection_Reason': rejection_reason,
+                'Recommendation': recommendation,
+                'Target_Product': nearest_product,
+                'Target_Domain': nearest_domain,
+                'Target_Segment': nearest_segment,
+                'Priority': priority,
+                'Already_In_Synonyms': already_in_synonyms,
+            }
+
+            # Add up to 3 sample URLs
+            for i in range(3):
+                url = entry['urls'][i] if i < len(entry['urls']) else ''
+                row[f'Sample_URL_{i+1}'] = url
+
+            rows.append(row)
+
+        if not rows:
+            return None
+
+        df = pd.DataFrame(rows)
+
+        # Filter out NOISE
+        df = df[df['Priority'] != 'NOISE'].copy()
+
+        if len(df) == 0:
+            return None
+
+        # Sort: Priority (HIGH first) → Frequency (desc) → Score (desc)
+        priority_order = {'HIGH': 0, 'MEDIUM': 1, 'LOW': 2}
+        df['_priority_sort'] = df['Priority'].map(priority_order)
+        df = df.sort_values(['_priority_sort', 'Frequency', 'Nearest_Score'],
+                           ascending=[True, False, False])
+        df = df.drop('_priority_sort', axis=1)
+        df = df.reset_index(drop=True)
+
+        return df
+
     def run(self):
         """Execute the complete matching workflow."""
         print("=" * 60)
@@ -877,6 +1335,12 @@ class TaxonomyMatcher:
         print(f"Synonyms loaded: {len(self.synonyms)} terms")
         if self.include_summary:
             print(f"Summary column: ENABLED (extracting additional keywords)")
+        if self.debug:
+            print(f"Debug mode: ENABLED")
+        if self.url_filter:
+            print(f"URL filter: '{self.url_filter}'")
+        if self.max_rows > 0:
+            print(f"Max rows: {self.max_rows}")
         print("=" * 60)
 
         self.load_data()
@@ -988,6 +1452,24 @@ def main():
         help='Maximum results per URL (1-10, default 3)',
         default=3
     )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable per-keyword debug trace output',
+        default=False
+    )
+    parser.add_argument(
+        '--max-rows',
+        type=int,
+        help='Limit processing to first N rows (0 = all)',
+        default=0
+    )
+    parser.add_argument(
+        '--url-filter',
+        type=str,
+        help='Only process URLs containing this text',
+        default=''
+    )
 
     args = parser.parse_args()
 
@@ -1010,7 +1492,10 @@ def main():
             similarity_threshold=threshold,
             consolidate_topics=args.consolidate_topics,
             include_summary=args.use_summary,
-            top_n=args.top_n
+            top_n=args.top_n,
+            debug=args.debug,
+            max_rows=args.max_rows,
+            url_filter=args.url_filter
         )
 
         matcher.run()

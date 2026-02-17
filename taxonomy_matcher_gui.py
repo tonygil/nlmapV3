@@ -3,6 +3,14 @@ NL Taxonomy Mapper V3 - Beautiful GUI Application
 Modern interface with multi-country support
 """
 
+# =============================================================================
+# VERSION - Update this when making changes to the application
+# =============================================================================
+VERSION = "3.15"
+VERSION_DATE = "2026-02-17"
+VERSION_NOTES = "Source-aware keyword matching — Title keywords use lower threshold (70) and boosted relevance; URL keywords get Low Trust label at borderline scores"
+# =============================================================================
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext, simpledialog
 import threading
@@ -12,6 +20,7 @@ import json
 import tempfile
 from datetime import datetime
 from taxonomy_matcher import TaxonomyMatcher
+from strict_content_matcher import StrictContentMatcher
 from country_config import CountryConfig
 from post_processor import PostProcessor, URL_EXCLUSION_PATTERNS
 import sys
@@ -250,7 +259,7 @@ class TaxonomyMapperGUI:
     def __init__(self, root):
         """Initialize the GUI application."""
         self.root = root
-        self.root.title("NL Taxonomy Mapper V3")
+        self.root.title(f"NL Taxonomy Mapper V{VERSION}")
         self.root.geometry("1000x850")  # Fallback size
         self.root.resizable(True, True)
         # Start maximized on Windows
@@ -277,6 +286,9 @@ class TaxonomyMapperGUI:
         self.output_file = tk.StringVar(value='taxonomy_match.xlsx')
         self.threshold = tk.IntVar(value=80)
         self.top_n = tk.IntVar(value=3)
+        self.debug_mode = tk.BooleanVar(value=False)
+        self.max_rows_var = tk.IntVar(value=0)
+        self.url_filter_var = tk.StringVar(value='')
         self.is_processing = False
 
         # Validation UI components
@@ -294,6 +306,14 @@ class TaxonomyMapperGUI:
         self.current_synonym_file = None
         self.all_topics = []  # Full list for search/filter
         self.filtered_topics = []  # Currently displayed topics
+
+        # Domain/Segment editor state
+        self.ds_mode = tk.StringVar(value='domains')  # 'domains' or 'segments'
+        self.ds_current_data = {}
+        self.ds_original_data = {}
+        self.ds_has_unsaved_changes = False
+        self.ds_current_file = None
+        self.ds_all_names = []
 
         # Country configuration
         try:
@@ -366,6 +386,8 @@ class TaxonomyMapperGUI:
         self.create_setup_tab(notebook)
         self.create_log_tab(notebook)
         self.create_synonym_editor_tab(notebook)
+        self.create_ds_editor_tab(notebook)
+        self.create_synonym_assistant_tab(notebook)
         self.create_reports_tab(notebook)
         self.create_about_tab(notebook)
         
@@ -599,7 +621,64 @@ class TaxonomyMapperGUI:
             activebackground=self.colors['card'],
             cursor='hand2'
         )
-        summary_check.pack(anchor='w', padx=20, pady=(5, 10))
+        summary_check.pack(anchor='w', padx=20, pady=(5, 5))
+
+        # Testing & Debug - compact single-row layout
+        ttk.Separator(settings_card, orient='horizontal').pack(fill='x', padx=20, pady=(2, 2))
+
+        debug_row = tk.Frame(settings_card, bg=self.colors['card'])
+        debug_row.pack(fill='x', padx=20, pady=(2, 2))
+
+        debug_check = tk.Checkbutton(
+            debug_row,
+            text="Debug mode",
+            variable=self.debug_mode,
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            selectcolor=self.colors['card'],
+            activebackground=self.colors['card'],
+            cursor='hand2'
+        )
+        debug_check.pack(side='left')
+        ToolTip(debug_check, "Trace keyword matching in console: synonym expansion, fuzzy scores, match/reject reasons")
+
+        ttk.Separator(debug_row, orient='vertical').pack(side='left', fill='y', padx=8, pady=2)
+
+        tk.Label(
+            debug_row,
+            text="Max rows:",
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text']
+        ).pack(side='left')
+        max_rows_spin = tk.Spinbox(
+            debug_row,
+            from_=0, to=99999,
+            textvariable=self.max_rows_var,
+            font=('Segoe UI', 9),
+            width=5
+        )
+        max_rows_spin.pack(side='left', padx=(3, 0))
+        ToolTip(max_rows_spin, "Limit to first N rows (0 = all). Applied after URL filter.")
+
+        ttk.Separator(debug_row, orient='vertical').pack(side='left', fill='y', padx=8, pady=2)
+
+        tk.Label(
+            debug_row,
+            text="URL filter:",
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text']
+        ).pack(side='left')
+        url_filter_entry = tk.Entry(
+            debug_row,
+            textvariable=self.url_filter_var,
+            font=('Segoe UI', 9),
+            width=30
+        )
+        url_filter_entry.pack(side='left', padx=(3, 0), fill='x', expand=True)
+        ToolTip(url_filter_entry, "Only process URLs containing this text (e.g. 'Journals'). Empty = all URLs")
 
         # Buttons and Progress Bar
         btn_frame = tk.Frame(frame, bg=self.colors['background'])
@@ -677,6 +756,52 @@ class TaxonomyMapperGUI:
         )
         self.remap_btn.pack(side='left', padx=5)
         ToolTip(self.remap_btn, "Re-run matching on filtered URLs against a new taxonomy file")
+
+        self.extract_keywords_btn = tk.Button(
+            btn_frame,
+            text="🔍 Extract Keywords",
+            command=self.show_extract_keywords_dialog,
+            font=('Segoe UI', 10),
+            bg='#14b8a6',
+            fg='white',
+            relief='flat',
+            padx=20,
+            pady=12,
+            cursor='hand2'
+        )
+        self.extract_keywords_btn.pack(side='left', padx=5)
+        ToolTip(self.extract_keywords_btn, "Extract keywords from URL/Title/Summary/Description for use in Remap")
+
+        self.import_sf_csv_btn = tk.Button(
+            btn_frame,
+            text="📥 Import SF CSV",
+            command=self.show_import_salesforce_csv_dialog,
+            font=('Segoe UI', 10),
+            bg='#8b5cf6',
+            fg='white',
+            relief='flat',
+            padx=20,
+            pady=12,
+            cursor='hand2'
+        )
+        self.import_sf_csv_btn.pack(side='left', padx=5)
+        ToolTip(self.import_sf_csv_btn, "Import Salesforce Knowledge CSV export (482+ columns) and convert to semantic format")
+
+        # STRICT MATCH BUTTON - HIDDEN (poor quality output - see STRICT_MATCH_RECOMMENDATION.md)
+        # self.strict_match_btn = tk.Button(
+        #     btn_frame,
+        #     text="📋 Strict Match",
+        #     command=self.show_strict_match_dialog,
+        #     font=('Segoe UI', 10),
+        #     bg='#f59e0b',
+        #     fg='white',
+        #     relief='flat',
+        #     padx=20,
+        #     pady=12,
+        #     cursor='hand2'
+        # )
+        # self.strict_match_btn.pack(side='left', padx=5)
+        # ToolTip(self.strict_match_btn, "Generates topics from page content (Title/Summary/Description/URL) — no taxonomy needed")
 
         # Modern Progress Bar Section
         progress_container = tk.Frame(btn_frame, bg=self.colors['background'])
@@ -1152,6 +1277,1105 @@ class TaxonomyMapperGUI:
             justify='left'
         ).pack(anchor='w', pady=(5, 0))
 
+    # ==================== DOMAIN/SEGMENT EDITOR TAB ====================
+
+    def create_ds_editor_tab(self, notebook):
+        """Create Domain/Segment Editor tab."""
+        editor_frame = tk.Frame(notebook, bg=self.colors['background'])
+        notebook.add(editor_frame, text='   Domain/Segment Editor  ')
+
+        # Three-column layout
+        left_panel = self._ds_create_left_panel(editor_frame)
+        left_panel.pack(side='left', fill='both', expand=False, padx=10, pady=10)
+
+        middle_panel = self._ds_create_middle_panel(editor_frame)
+        middle_panel.pack(side='left', fill='both', expand=True, padx=10, pady=10)
+
+        right_panel = self._ds_create_right_panel(editor_frame)
+        right_panel.pack(side='right', fill='both', expand=False, padx=10, pady=10)
+
+    def _ds_create_left_panel(self, parent):
+        """Create name browser panel for domain/segment editor."""
+        panel = tk.Frame(parent, bg=self.colors['background'], width=250)
+        panel.pack_propagate(False)
+
+        card = self.create_card(panel, "Domain/Segment Editor")
+        card.pack(fill='both', expand=True)
+
+        # Mode switcher (Domains / Segments)
+        mode_frame = tk.Frame(card, bg=self.colors['card'])
+        mode_frame.pack(fill='x', padx=20, pady=(5, 10))
+
+        tk.Radiobutton(
+            mode_frame, text="Domains", variable=self.ds_mode,
+            value='domains', bg=self.colors['card'], fg=self.colors['text'],
+            font=('Segoe UI', 10, 'bold'), selectcolor=self.colors['card'],
+            activebackground=self.colors['card'],
+            command=self._ds_on_mode_changed
+        ).pack(side='left', padx=(0, 15))
+
+        tk.Radiobutton(
+            mode_frame, text="Segments", variable=self.ds_mode,
+            value='segments', bg=self.colors['card'], fg=self.colors['text'],
+            font=('Segoe UI', 10, 'bold'), selectcolor=self.colors['card'],
+            activebackground=self.colors['card'],
+            command=self._ds_on_mode_changed
+        ).pack(side='left')
+
+        # Country selector
+        country_frame = tk.Frame(card, bg=self.colors['card'])
+        country_frame.pack(fill='x', padx=20, pady=10)
+
+        tk.Label(country_frame, text="Country:", bg=self.colors['card'],
+                 font=('Segoe UI', 10)).pack(side='left')
+        self.ds_country = tk.StringVar(value='GB')
+        country_codes = [c['code'] if isinstance(c, dict) else c for c in self.available_countries]
+        ds_country_dropdown = ttk.Combobox(
+            country_frame, textvariable=self.ds_country,
+            values=country_codes, state='readonly', width=10
+        )
+        ds_country_dropdown.pack(side='left', padx=10)
+        ds_country_dropdown.bind('<<ComboboxSelected>>', self._ds_on_country_changed)
+
+        # Search box
+        search_frame = tk.Frame(card, bg=self.colors['card'])
+        search_frame.pack(fill='x', padx=20, pady=10)
+
+        tk.Label(search_frame, text="Search:", bg=self.colors['card']).pack(anchor='w')
+        self.ds_search = tk.StringVar()
+        self.ds_search.trace_add('write', self._ds_filter_names)
+        tk.Entry(search_frame, textvariable=self.ds_search).pack(fill='x', pady=5)
+
+        # Name listbox with scrollbar
+        list_frame = tk.Frame(card, bg=self.colors['card'])
+        list_frame.pack(fill='both', expand=True, padx=20, pady=10)
+
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side='right', fill='y')
+
+        self.ds_name_listbox = tk.Listbox(
+            list_frame, font=('Segoe UI', 10),
+            yscrollcommand=scrollbar.set, selectmode='single',
+            exportselection=False, bg=self.colors['card'],
+            fg=self.colors['text'], selectbackground=self.colors['primary'],
+            selectforeground='white'
+        )
+        self.ds_name_listbox.pack(side='left', fill='both', expand=True)
+        scrollbar.config(command=self.ds_name_listbox.yview)
+
+        self.ds_name_listbox.bind('<<ListboxSelect>>', self._ds_on_name_selected)
+
+        # Statistics label
+        self.ds_stats_label = tk.Label(
+            card, text="Select a country to load",
+            font=('Segoe UI', 9), fg=self.colors['text_light'],
+            bg=self.colors['card']
+        )
+        self.ds_stats_label.pack(pady=10)
+
+        return panel
+
+    def _ds_create_middle_panel(self, parent):
+        """Create keyword list panel for domain/segment editor."""
+        panel = tk.Frame(parent, bg=self.colors['background'])
+
+        card = self.create_card(panel, "Keywords")
+        card.pack(fill='both', expand=True)
+
+        # Header: selected name + keyword count
+        self.ds_selected_label = tk.Label(
+            card, text="Select a domain or segment",
+            font=('Segoe UI', 14, 'bold'), bg=self.colors['card'],
+            fg=self.colors['text']
+        )
+        self.ds_selected_label.pack(anchor='w', padx=20, pady=(10, 5))
+
+        self.ds_keyword_count_label = tk.Label(
+            card, text="", font=('Segoe UI', 9),
+            fg=self.colors['text_light'], bg=self.colors['card']
+        )
+        self.ds_keyword_count_label.pack(anchor='w', padx=20, pady=(0, 10))
+
+        # Action buttons row
+        button_frame = tk.Frame(card, bg=self.colors['card'])
+        button_frame.pack(fill='x', padx=20, pady=10)
+
+        self.ds_add_kw_btn = tk.Button(
+            button_frame, text="Add Keyword",
+            command=self._ds_add_keyword,
+            bg=self.colors['secondary'], fg='white',
+            font=('Segoe UI', 10, 'bold'), relief='flat',
+            cursor='hand2', padx=15, pady=8
+        )
+        self.ds_add_kw_btn.pack(side='left', padx=(0, 10))
+        self.ds_add_kw_btn.config(state='disabled')
+
+        self.ds_delete_kw_btn = tk.Button(
+            button_frame, text="Delete Selected",
+            command=self._ds_delete_keyword,
+            bg=self.colors['error'], fg='white',
+            font=('Segoe UI', 10, 'bold'), relief='flat',
+            cursor='hand2', padx=15, pady=8
+        )
+        self.ds_delete_kw_btn.pack(side='left', padx=(0, 10))
+        self.ds_delete_kw_btn.config(state='disabled')
+
+        self.ds_bulk_import_btn = tk.Button(
+            button_frame, text="Bulk Import",
+            command=self._ds_bulk_import_keywords,
+            bg='#8b5cf6', fg='white',
+            font=('Segoe UI', 10, 'bold'), relief='flat',
+            cursor='hand2', padx=15, pady=8
+        )
+        self.ds_bulk_import_btn.pack(side='left')
+        self.ds_bulk_import_btn.config(state='disabled')
+
+        # Keyword listbox with scrollbar
+        list_frame = tk.Frame(card, bg=self.colors['card'])
+        list_frame.pack(fill='both', expand=True, padx=20, pady=10)
+
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side='right', fill='y')
+
+        self.ds_keyword_listbox = tk.Listbox(
+            list_frame, font=('Consolas', 10),
+            yscrollcommand=scrollbar.set, selectmode='extended',
+            exportselection=False, bg='#fafafa',
+            fg=self.colors['text'], selectbackground=self.colors['primary'],
+            selectforeground='white', height=20
+        )
+        self.ds_keyword_listbox.pack(side='left', fill='both', expand=True)
+        scrollbar.config(command=self.ds_keyword_listbox.yview)
+
+        self.ds_keyword_listbox.bind('<Double-Button-1>', self._ds_edit_keyword_inline)
+
+        return panel
+
+    def _ds_create_right_panel(self, parent):
+        """Create action panel for domain/segment editor."""
+        panel = tk.Frame(parent, bg=self.colors['background'], width=200)
+        panel.pack_propagate(False)
+
+        btn_style = {
+            'font': ('Segoe UI', 9, 'bold'), 'relief': 'flat',
+            'cursor': 'hand2', 'padx': 10, 'pady': 8, 'width': 15
+        }
+
+        # Name actions card
+        name_card = self.create_card(panel, "Name Actions")
+        name_card.pack(fill='x', pady=(0, 10))
+
+        self.ds_add_name_btn = tk.Button(
+            name_card, text="Add Name",
+            command=self._ds_add_name,
+            bg=self.colors['secondary'], fg='white', **btn_style
+        )
+        self.ds_add_name_btn.pack(padx=20, pady=(10, 5))
+
+        self.ds_rename_btn = tk.Button(
+            name_card, text="Rename",
+            command=self._ds_rename_name,
+            bg=self.colors['primary'], fg='white', **btn_style
+        )
+        self.ds_rename_btn.pack(padx=20, pady=5)
+        self.ds_rename_btn.config(state='disabled')
+
+        self.ds_delete_name_btn = tk.Button(
+            name_card, text="Delete Name",
+            command=self._ds_delete_name,
+            bg=self.colors['error'], fg='white', **btn_style
+        )
+        self.ds_delete_name_btn.pack(padx=20, pady=(5, 10))
+        self.ds_delete_name_btn.config(state='disabled')
+
+        # File operations card
+        file_card = self.create_card(panel, "File Operations")
+        file_card.pack(fill='x', pady=(0, 10))
+
+        self.ds_save_btn = tk.Button(
+            file_card, text="Save Changes",
+            command=self._ds_save,
+            bg=self.colors['secondary'], fg='white', **btn_style
+        )
+        self.ds_save_btn.pack(padx=20, pady=(10, 5))
+        self.ds_save_btn.config(state='disabled')
+
+        self.ds_revert_btn = tk.Button(
+            file_card, text="Revert Changes",
+            command=self._ds_revert,
+            bg='#6b7280', fg='white', **btn_style
+        )
+        self.ds_revert_btn.pack(padx=20, pady=(5, 10))
+        self.ds_revert_btn.config(state='disabled')
+
+        # Status card
+        status_card = self.create_card(panel, "Status")
+        status_card.pack(fill='x', pady=(0, 10))
+
+        self.ds_changes_indicator = tk.Label(
+            status_card, text="No unsaved changes",
+            font=('Segoe UI', 9), fg=self.colors['secondary'],
+            bg=self.colors['card']
+        )
+        self.ds_changes_indicator.pack(padx=20, pady=10)
+
+        # Help card
+        help_card = self.create_card(panel, "Quick Help")
+        help_card.pack(fill='both', expand=True)
+
+        help_text = (
+            "• Switch Domains/Segments mode\n"
+            "• Select country to load data\n"
+            "• Click name to view keywords\n"
+            "• Double-click keyword to edit\n"
+            "• Save often to preserve work\n"
+            "• Used by Strict Content Match"
+        )
+        tk.Label(
+            help_card, text=help_text,
+            font=('Segoe UI', 9), fg=self.colors['text_light'],
+            bg=self.colors['card'], justify='left'
+        ).pack(anchor='w', padx=20, pady=10)
+
+        return panel
+
+    # ---- Domain/Segment Editor: Data operations ----
+
+    def _ds_get_file_path(self):
+        """Get the JSON file path for current mode and country."""
+        country_code = self.ds_country.get()
+        mode = self.ds_mode.get()
+        filename = 'domains.json' if mode == 'domains' else 'segments.json'
+        return os.path.join(os.path.dirname(__file__), 'countries', country_code, filename)
+
+    def _ds_load_data(self, event=None):
+        """Load domain/segment data for selected country and mode."""
+        file_path = self._ds_get_file_path()
+        self.ds_current_file = file_path
+        mode_label = self.ds_mode.get().rstrip('s').title()  # "Domain" or "Segment"
+
+        if not os.path.exists(file_path):
+            # No file yet - start with empty data
+            self.ds_current_data = {}
+            self.ds_original_data = {}
+            self.ds_all_names = []
+            self._ds_populate_name_list(self.ds_all_names)
+            self.ds_stats_label.config(
+                text=f"No {self.ds_mode.get()} file found - add entries to create",
+                fg='#ea580c'
+            )
+            self.log(f"No {self.ds_mode.get()} file found at {file_path}")
+            self._ds_reset_middle_panel()
+            self.ds_has_unsaved_changes = False
+            self._ds_update_save_buttons()
+            return
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            self.ds_current_data = data
+            self.ds_original_data = copy.deepcopy(data)
+
+            self.ds_all_names = sorted(data.keys())
+            self._ds_populate_name_list(self.ds_all_names)
+
+            total_keywords = sum(len(v) for v in data.values())
+            self.ds_stats_label.config(
+                text=f"{len(self.ds_all_names)} {self.ds_mode.get()}, {total_keywords} keywords",
+                fg=self.colors['text_light']
+            )
+
+            self._ds_reset_middle_panel()
+            self.ds_has_unsaved_changes = False
+            self._ds_update_save_buttons()
+            self.log(f"Loaded {self.ds_mode.get()} for {self.ds_country.get()}: "
+                     f"{len(self.ds_all_names)} entries, {total_keywords} keywords")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load {self.ds_mode.get()}: {e}")
+            self.log(f"ERROR loading {self.ds_mode.get()}: {e}")
+
+    def _ds_reset_middle_panel(self):
+        """Reset middle panel to default state."""
+        self.ds_selected_label.config(text="Select a domain or segment")
+        self.ds_keyword_count_label.config(text="")
+        self.ds_keyword_listbox.delete(0, 'end')
+        self.ds_add_kw_btn.config(state='disabled')
+        self.ds_delete_kw_btn.config(state='disabled')
+        self.ds_bulk_import_btn.config(state='disabled')
+        self.ds_rename_btn.config(state='disabled')
+        self.ds_delete_name_btn.config(state='disabled')
+
+    def _ds_check_unsaved(self):
+        """Check for unsaved changes and prompt to save. Returns True if OK to proceed."""
+        if not self.ds_has_unsaved_changes:
+            return True
+        result = messagebox.askyesnocancel(
+            "Unsaved Changes",
+            f"You have unsaved changes to {self.ds_mode.get()}.\n\nSave before switching?"
+        )
+        if result is None:  # Cancel
+            return False
+        if result:  # Yes - save
+            self._ds_save()
+        return True
+
+    def _ds_on_mode_changed(self):
+        """Handle mode switch between domains and segments."""
+        if not self._ds_check_unsaved():
+            # Revert the radio button to opposite value
+            current = self.ds_mode.get()
+            self.ds_mode.set('segments' if current == 'domains' else 'domains')
+            return
+        self.ds_search.set('')
+        self._ds_load_data()
+
+    def _ds_on_country_changed(self, event=None):
+        """Handle country change."""
+        if not self._ds_check_unsaved():
+            return
+        self.ds_search.set('')
+        self._ds_load_data()
+
+    def _ds_filter_names(self, *args):
+        """Filter name list based on search text."""
+        search_text = self.ds_search.get().lower()
+        if not search_text:
+            self._ds_populate_name_list(self.ds_all_names)
+            return
+        filtered = [n for n in self.ds_all_names if search_text in n.lower()]
+        self._ds_populate_name_list(filtered)
+
+    def _ds_populate_name_list(self, names):
+        """Populate name listbox, highlighting names with 0 keywords in orange."""
+        self.ds_name_listbox.delete(0, 'end')
+        for name in names:
+            self.ds_name_listbox.insert('end', name)
+            idx = self.ds_name_listbox.size() - 1
+            keywords = self.ds_current_data.get(name, [])
+            if not keywords:
+                self.ds_name_listbox.itemconfig(idx, fg='#ea580c')
+
+    def _ds_on_name_selected(self, event):
+        """Handle name selection - populate keywords."""
+        selection = self.ds_name_listbox.curselection()
+        if not selection:
+            return
+
+        name = self.ds_name_listbox.get(selection[0])
+        keywords = self.ds_current_data.get(name, [])
+
+        self.ds_selected_label.config(text=name)
+        self.ds_keyword_count_label.config(text=f"{len(keywords)} keywords")
+
+        self.ds_keyword_listbox.delete(0, 'end')
+        for kw in keywords:
+            self.ds_keyword_listbox.insert('end', kw)
+
+        self.ds_add_kw_btn.config(state='normal')
+        self.ds_delete_kw_btn.config(state='normal')
+        self.ds_bulk_import_btn.config(state='normal')
+        self.ds_rename_btn.config(state='normal')
+        self.ds_delete_name_btn.config(state='normal')
+
+    # ---- Domain/Segment Editor: Name operations ----
+
+    def _ds_add_name(self):
+        """Add a new domain or segment name."""
+        mode_label = self.ds_mode.get().rstrip('s').title()
+        new_name = simpledialog.askstring(
+            f"Add {mode_label}",
+            f"Enter new {mode_label.lower()} name:",
+            parent=self.root
+        )
+        if not new_name:
+            return
+        new_name = new_name.strip()
+        if not new_name:
+            return
+
+        if new_name in self.ds_current_data:
+            messagebox.showwarning("Duplicate", f"'{new_name}' already exists")
+            return
+
+        self.ds_current_data[new_name] = []
+        self.ds_all_names.append(new_name)
+        self.ds_all_names.sort()
+        self._ds_populate_name_list(self.ds_all_names)
+
+        # Select the new entry
+        idx = self.ds_all_names.index(new_name)
+        self.ds_name_listbox.selection_clear(0, 'end')
+        self.ds_name_listbox.selection_set(idx)
+        self.ds_name_listbox.see(idx)
+        self._ds_on_name_selected(None)
+
+        self._ds_mark_changed()
+        self._ds_update_stats()
+        self.log(f"Added {mode_label.lower()}: '{new_name}'")
+
+    def _ds_rename_name(self):
+        """Rename selected domain or segment."""
+        selection = self.ds_name_listbox.curselection()
+        if not selection:
+            return
+
+        old_name = self.ds_name_listbox.get(selection[0])
+        mode_label = self.ds_mode.get().rstrip('s').title()
+
+        new_name = simpledialog.askstring(
+            f"Rename {mode_label}",
+            f"Rename '{old_name}' to:",
+            initialvalue=old_name,
+            parent=self.root
+        )
+        if not new_name or new_name == old_name:
+            return
+        new_name = new_name.strip()
+        if not new_name:
+            return
+
+        if new_name in self.ds_current_data:
+            messagebox.showwarning("Duplicate", f"'{new_name}' already exists")
+            return
+
+        self.ds_current_data[new_name] = self.ds_current_data.pop(old_name, [])
+        self.ds_all_names.remove(old_name)
+        self.ds_all_names.append(new_name)
+        self.ds_all_names.sort()
+        self._ds_populate_name_list(self.ds_all_names)
+
+        idx = self.ds_all_names.index(new_name)
+        self.ds_name_listbox.selection_set(idx)
+        self.ds_name_listbox.see(idx)
+        self._ds_on_name_selected(None)
+
+        self._ds_mark_changed()
+        self.log(f"Renamed {mode_label.lower()}: '{old_name}' -> '{new_name}'")
+
+    def _ds_delete_name(self):
+        """Delete selected domain or segment."""
+        selection = self.ds_name_listbox.curselection()
+        if not selection:
+            return
+
+        name = self.ds_name_listbox.get(selection[0])
+        mode_label = self.ds_mode.get().rstrip('s').title()
+        kw_count = len(self.ds_current_data.get(name, []))
+
+        if not messagebox.askyesno(
+            "Confirm Delete",
+            f"Delete {mode_label.lower()} '{name}' and its {kw_count} keywords?"
+        ):
+            return
+
+        del self.ds_current_data[name]
+        self.ds_all_names.remove(name)
+        self._ds_populate_name_list(self.ds_all_names)
+
+        self._ds_reset_middle_panel()
+        self._ds_mark_changed()
+        self._ds_update_stats()
+        self.log(f"Deleted {mode_label.lower()}: '{name}'")
+
+    # ---- Domain/Segment Editor: Keyword operations ----
+
+    def _ds_add_keyword(self):
+        """Add a keyword to the selected name."""
+        selection = self.ds_name_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a name first")
+            return
+
+        name = self.ds_name_listbox.get(selection[0])
+        new_kw = simpledialog.askstring(
+            "Add Keyword",
+            f"Enter new keyword for '{name}':",
+            parent=self.root
+        )
+        if not new_kw:
+            return
+        new_kw = new_kw.strip()
+        if not new_kw:
+            return
+
+        keywords = self.ds_current_data.get(name, [])
+        if new_kw.lower() in [k.lower() for k in keywords]:
+            messagebox.showinfo("Duplicate", f"'{new_kw}' already exists for '{name}'")
+            return
+
+        keywords.append(new_kw)
+        self.ds_current_data[name] = keywords
+        self.ds_keyword_listbox.insert('end', new_kw)
+
+        self.ds_keyword_count_label.config(text=f"{len(keywords)} keywords")
+        self._ds_mark_changed()
+        self._ds_update_stats()
+        self.log(f"Added keyword '{new_kw}' to '{name}'")
+
+    def _ds_delete_keyword(self):
+        """Delete selected keyword(s)."""
+        selection = self.ds_keyword_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select keyword(s) to delete")
+            return
+
+        name_sel = self.ds_name_listbox.curselection()
+        if not name_sel:
+            return
+        name = self.ds_name_listbox.get(name_sel[0])
+
+        count = len(selection)
+        if not messagebox.askyesno("Confirm Delete", f"Delete {count} keyword(s)?"):
+            return
+
+        keywords = self.ds_current_data.get(name, [])
+        for idx in reversed(selection):
+            kw = self.ds_keyword_listbox.get(idx)
+            try:
+                keywords.remove(kw)
+            except ValueError:
+                pass
+            self.ds_keyword_listbox.delete(idx)
+
+        self.ds_keyword_count_label.config(text=f"{len(keywords)} keywords")
+        self._ds_mark_changed()
+        self._ds_update_stats()
+        self.log(f"Deleted {count} keyword(s) from '{name}'")
+
+    def _ds_edit_keyword_inline(self, event):
+        """Edit keyword via double-click."""
+        selection = self.ds_keyword_listbox.curselection()
+        if not selection:
+            return
+        idx = selection[0]
+        old_kw = self.ds_keyword_listbox.get(idx)
+
+        name_sel = self.ds_name_listbox.curselection()
+        if not name_sel:
+            return
+        name = self.ds_name_listbox.get(name_sel[0])
+
+        new_kw = simpledialog.askstring(
+            "Edit Keyword", "Edit keyword:",
+            initialvalue=old_kw, parent=self.root
+        )
+        if not new_kw or new_kw == old_kw:
+            return
+
+        keywords = self.ds_current_data.get(name, [])
+        try:
+            kw_idx = keywords.index(old_kw)
+            keywords[kw_idx] = new_kw
+        except ValueError:
+            pass
+
+        self.ds_keyword_listbox.delete(idx)
+        self.ds_keyword_listbox.insert(idx, new_kw)
+        self.ds_keyword_listbox.selection_set(idx)
+
+        self._ds_mark_changed()
+        self.log(f"Edited keyword: '{old_kw}' -> '{new_kw}'")
+
+    def _ds_bulk_import_keywords(self):
+        """Bulk import keywords via paste dialog."""
+        selection = self.ds_name_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a name first")
+            return
+
+        name = self.ds_name_listbox.get(selection[0])
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Bulk Import Keywords - {name}")
+        dialog.geometry("500x450")
+        dialog.configure(bg=self.colors['background'])
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (450 // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        tk.Label(
+            dialog, text=f"Bulk Import Keywords for '{name}'",
+            font=('Segoe UI', 12, 'bold'), bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(pady=(15, 5))
+
+        tk.Label(
+            dialog,
+            text="Paste keywords below (one per line).\nDuplicates will be skipped.",
+            font=('Segoe UI', 9), bg=self.colors['background'],
+            fg=self.colors['text_light']
+        ).pack(pady=(0, 10))
+
+        text_frame = tk.Frame(dialog, bg=self.colors['background'])
+        text_frame.pack(fill='both', expand=True, padx=20, pady=10)
+
+        scrollbar = tk.Scrollbar(text_frame)
+        scrollbar.pack(side='right', fill='y')
+
+        text_area = tk.Text(
+            text_frame, font=('Consolas', 10), wrap='word',
+            yscrollcommand=scrollbar.set, bg='#fafafa',
+            fg=self.colors['text'], relief='solid', borderwidth=1,
+            padx=10, pady=10
+        )
+        text_area.pack(side='left', fill='both', expand=True)
+        scrollbar.config(command=text_area.yview)
+
+        status_label = tk.Label(
+            dialog, text="", font=('Segoe UI', 9),
+            bg=self.colors['background'], fg=self.colors['text_light']
+        )
+        status_label.pack(pady=5)
+
+        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
+        btn_frame.pack(pady=(10, 15))
+
+        def do_import():
+            text_content = text_area.get("1.0", "end-1c")
+            lines = [line.strip() for line in text_content.split('\n') if line.strip()]
+            if not lines:
+                status_label.config(text="No keywords to import", fg=self.colors['error'])
+                return
+
+            keywords = self.ds_current_data.get(name, [])
+            existing = [k.lower() for k in keywords]
+            added = 0
+            skipped = 0
+
+            for line in lines:
+                if line.lower() in existing:
+                    skipped += 1
+                else:
+                    keywords.append(line)
+                    self.ds_keyword_listbox.insert('end', line)
+                    existing.append(line.lower())
+                    added += 1
+
+            self.ds_current_data[name] = keywords
+            self.ds_keyword_count_label.config(text=f"{len(keywords)} keywords")
+
+            if added > 0:
+                self._ds_mark_changed()
+                self._ds_update_stats()
+                self.log(f"Bulk imported {added} keywords to '{name}' ({skipped} duplicates skipped)")
+
+            status_label.config(
+                text=f"Imported {added} keywords, {skipped} duplicates skipped",
+                fg=self.colors['secondary'] if added > 0 else self.colors['text_light']
+            )
+            if added > 0:
+                dialog.after(1500, dialog.destroy)
+
+        def paste_from_clipboard():
+            try:
+                clipboard = dialog.clipboard_get()
+                text_area.delete("1.0", "end")
+                text_area.insert("1.0", clipboard)
+                lines = [l.strip() for l in clipboard.split('\n') if l.strip()]
+                status_label.config(text=f"Pasted {len(lines)} lines", fg=self.colors['text_light'])
+            except tk.TclError:
+                status_label.config(text="Clipboard is empty", fg=self.colors['error'])
+
+        tk.Button(
+            btn_frame, text="Paste from Clipboard", command=paste_from_clipboard,
+            font=('Segoe UI', 10), bg='#6b7280', fg='white',
+            relief='flat', padx=15, pady=8, cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        tk.Button(
+            btn_frame, text="Import All", command=do_import,
+            font=('Segoe UI', 10, 'bold'), bg=self.colors['secondary'],
+            fg='white', relief='flat', padx=20, pady=8, cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        tk.Button(
+            btn_frame, text="Cancel", command=dialog.destroy,
+            font=('Segoe UI', 10), bg=self.colors['text_light'],
+            fg='white', relief='flat', padx=15, pady=8, cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        text_area.focus_set()
+
+    # ---- Domain/Segment Editor: File operations ----
+
+    def _ds_save(self):
+        """Save current data to JSON file with backup."""
+        if not self.ds_has_unsaved_changes:
+            messagebox.showinfo("No Changes", "No unsaved changes to save")
+            return
+
+        file_path = self._ds_get_file_path()
+
+        try:
+            import shutil
+
+            # Ensure country directory exists
+            dir_path = os.path.dirname(file_path)
+            os.makedirs(dir_path, exist_ok=True)
+
+            # Create backup of existing file
+            if os.path.exists(file_path):
+                backup_file = file_path.replace('.json', '_backup.json')
+                shutil.copy2(file_path, backup_file)
+                self.log(f"Created backup: {os.path.basename(backup_file)}")
+
+            # Atomic write via temp file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', dir=dir_path,
+                                             delete=False, encoding='utf-8') as temp_file:
+                json.dump(self.ds_current_data, temp_file, indent=4, ensure_ascii=False)
+                temp_path = temp_file.name
+
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            shutil.move(temp_path, file_path)
+
+            self.ds_original_data = copy.deepcopy(self.ds_current_data)
+            self.ds_current_file = file_path
+            self.ds_has_unsaved_changes = False
+            self._ds_update_save_buttons()
+
+            mode_label = self.ds_mode.get().rstrip('s').title()
+            messagebox.showinfo("Success", f"{mode_label}s saved successfully!")
+            self.log(f"Saved {self.ds_mode.get()} for {self.ds_country.get()}")
+
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Failed to save: {e}")
+            self.log(f"ERROR saving {self.ds_mode.get()}: {e}")
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+    def _ds_revert(self):
+        """Revert to last saved version."""
+        if not self.ds_has_unsaved_changes:
+            messagebox.showinfo("No Changes", "No changes to revert")
+            return
+
+        if not messagebox.askyesno("Confirm Revert", "Discard all unsaved changes?"):
+            return
+
+        self.ds_current_data = copy.deepcopy(self.ds_original_data)
+        self.ds_all_names = sorted(self.ds_current_data.keys())
+        self._ds_populate_name_list(self.ds_all_names)
+        self._ds_reset_middle_panel()
+        self._ds_update_stats()
+
+        self.ds_has_unsaved_changes = False
+        self._ds_update_save_buttons()
+
+        messagebox.showinfo("Reverted", "Changes reverted to last saved version")
+        self.log("Reverted domain/segment changes")
+
+    # ---- Domain/Segment Editor: UI helpers ----
+
+    def _ds_mark_changed(self):
+        """Mark editor as having unsaved changes."""
+        self.ds_has_unsaved_changes = True
+        self._ds_update_save_buttons()
+
+    def _ds_update_save_buttons(self):
+        """Update save/revert button states and indicator."""
+        state = 'normal' if self.ds_has_unsaved_changes else 'disabled'
+        self.ds_save_btn.config(state=state)
+        self.ds_revert_btn.config(state=state)
+
+        if self.ds_has_unsaved_changes:
+            self.ds_changes_indicator.config(
+                text="Unsaved changes", fg=self.colors['error']
+            )
+        else:
+            self.ds_changes_indicator.config(
+                text="No unsaved changes", fg=self.colors['secondary']
+            )
+
+    def _ds_update_stats(self):
+        """Update statistics label."""
+        total_keywords = sum(len(v) for v in self.ds_current_data.values())
+        empty_count = sum(1 for v in self.ds_current_data.values() if not v)
+
+        text = f"{len(self.ds_all_names)} {self.ds_mode.get()}, {total_keywords} keywords"
+        if empty_count > 0:
+            text += f", {empty_count} empty (orange)"
+            self.ds_stats_label.config(text=text, fg='#ea580c')
+        else:
+            self.ds_stats_label.config(text=text, fg=self.colors['text_light'])
+
+    def create_synonym_assistant_tab(self, notebook):
+        """Create dedicated Synonym Assistant tab with full-size layout."""
+        frame = tk.Frame(notebook, bg=self.colors['background'])
+        notebook.add(frame, text='   Synonym Assistant  ')
+
+        # Main content frame
+        main_content = tk.Frame(frame, bg=self.colors['background'])
+        main_content.pack(fill='both', expand=True, padx=15, pady=10)
+
+        # Header
+        header_frame = tk.Frame(main_content, bg=self.colors['background'])
+        header_frame.pack(fill='x', pady=(0, 10))
+
+        tk.Label(
+            header_frame,
+            text="Synonym Assistant",
+            font=('Segoe UI', 16, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(side='left')
+
+        tk.Label(
+            header_frame,
+            text="Review and apply synonym suggestions directly - no Excel needed",
+            font=('Segoe UI', 10),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        ).pack(side='left', padx=(20, 0))
+
+        # File inputs card
+        files_card = self.create_card(main_content, "Input Files")
+        files_card.pack(fill='x', pady=(0, 10))
+
+        files_content = tk.Frame(files_card, bg=self.colors['card'])
+        files_content.pack(fill='x', padx=20, pady=15)
+
+        # Row 1: Match File
+        match_row = tk.Frame(files_content, bg=self.colors['card'])
+        match_row.pack(fill='x', pady=3)
+        tk.Label(match_row, text="Match File:", font=('Segoe UI', 10), bg=self.colors['card'], width=14, anchor='w').pack(side='left')
+        self.assistant_match_file = tk.StringVar()
+        tk.Entry(match_row, textvariable=self.assistant_match_file, font=('Segoe UI', 10), width=60).pack(side='left', padx=(0, 10))
+        tk.Button(match_row, text="Browse", command=lambda: self._browse_assistant_file(self.assistant_match_file, "Select Match File"),
+                  font=('Segoe UI', 9), bg=self.colors['primary'], fg='white', relief='flat', padx=12, cursor='hand2').pack(side='left')
+        tk.Button(match_row, text="Clear", command=lambda: self.assistant_match_file.set(''),
+                  font=('Segoe UI', 9), bg='#95a5a6', fg='white', relief='flat', padx=8, cursor='hand2').pack(side='left', padx=5)
+        tk.Label(match_row, text="(filtered/cleaned output for gap analysis)", font=('Segoe UI', 9, 'italic'),
+                 bg=self.colors['card'], fg=self.colors['text_light']).pack(side='left', padx=10)
+
+        # Row 2: Semantic File
+        sem_row = tk.Frame(files_content, bg=self.colors['card'])
+        sem_row.pack(fill='x', pady=3)
+        tk.Label(sem_row, text="Semantic File:", font=('Segoe UI', 10), bg=self.colors['card'], width=14, anchor='w').pack(side='left')
+        self.assistant_semantic_file = tk.StringVar()
+        tk.Entry(sem_row, textvariable=self.assistant_semantic_file, font=('Segoe UI', 10), width=60).pack(side='left', padx=(0, 10))
+        tk.Button(sem_row, text="Browse", command=lambda: self._browse_assistant_file(self.assistant_semantic_file, "Select Semantic File"),
+                  font=('Segoe UI', 9), bg=self.colors['primary'], fg='white', relief='flat', padx=12, cursor='hand2').pack(side='left')
+        tk.Button(sem_row, text="Clear", command=lambda: self.assistant_semantic_file.set(''),
+                  font=('Segoe UI', 9), bg='#95a5a6', fg='white', relief='flat', padx=8, cursor='hand2').pack(side='left', padx=5)
+        tk.Label(sem_row, text="(optional - for keyword analysis)", font=('Segoe UI', 9, 'italic'),
+                 bg=self.colors['card'], fg=self.colors['text_light']).pack(side='left', padx=10)
+
+        # Row 3: Taxonomy File
+        tax_row = tk.Frame(files_content, bg=self.colors['card'])
+        tax_row.pack(fill='x', pady=3)
+        tk.Label(tax_row, text="Taxonomy:", font=('Segoe UI', 10), bg=self.colors['card'], width=14, anchor='w').pack(side='left')
+        self.assistant_taxonomy_file = tk.StringVar()
+        tk.Entry(tax_row, textvariable=self.assistant_taxonomy_file, font=('Segoe UI', 10), width=60).pack(side='left', padx=(0, 10))
+        tk.Button(tax_row, text="Browse", command=lambda: self._browse_assistant_file(self.assistant_taxonomy_file, "Select Taxonomy File"),
+                  font=('Segoe UI', 9), bg=self.colors['primary'], fg='white', relief='flat', padx=12, cursor='hand2').pack(side='left')
+
+        # Mode indicator
+        self.assistant_mode_label = tk.Label(
+            files_content,
+            text="Mode: Select files and click Analyze",
+            font=('Segoe UI', 10, 'italic'),
+            bg=self.colors['card'],
+            fg=self.colors['primary']
+        )
+        self.assistant_mode_label.pack(anchor='w', pady=(10, 0))
+
+        # Filter and Analyze row
+        filter_card = tk.Frame(main_content, bg=self.colors['card'], relief='solid', bd=1)
+        filter_card.pack(fill='x', pady=(0, 10))
+
+        filter_content = tk.Frame(filter_card, bg=self.colors['card'])
+        filter_content.pack(fill='x', padx=20, pady=12)
+
+        tk.Label(filter_content, text="Priority:", font=('Segoe UI', 10), bg=self.colors['card']).pack(side='left')
+        self.assistant_priority = tk.StringVar(value='HIGH')
+        priority_combo = ttk.Combobox(
+            filter_content,
+            textvariable=self.assistant_priority,
+            values=['HIGH', 'MEDIUM', 'LOW', 'ALL'],
+            state='readonly',
+            width=10,
+            font=('Segoe UI', 10)
+        )
+        priority_combo.pack(side='left', padx=(5, 20))
+
+        tk.Label(filter_content, text="Min Score:", font=('Segoe UI', 10), bg=self.colors['card']).pack(side='left')
+        self.assistant_min_score = tk.StringVar(value='85')
+        tk.Entry(filter_content, textvariable=self.assistant_min_score, width=6, font=('Segoe UI', 10)).pack(side='left', padx=(5, 20))
+
+        # Topic Scope selector - Never-Matched Only vs All Topics
+        tk.Label(filter_content, text="Topic Scope:", font=('Segoe UI', 10), bg=self.colors['card']).pack(side='left')
+        self.assistant_topic_scope = tk.StringVar(value='Never-Matched Only')
+        scope_combo = ttk.Combobox(
+            filter_content,
+            textvariable=self.assistant_topic_scope,
+            values=['Never-Matched Only', 'All Topics'],
+            state='readonly',
+            width=16,
+            font=('Segoe UI', 10)
+        )
+        scope_combo.pack(side='left', padx=(5, 20))
+
+        # Note: existing synonyms are always filtered out automatically
+        self.assistant_new_only = tk.BooleanVar(value=True)  # Keep variable but not used
+        tk.Label(
+            filter_content,
+            text="(existing synonyms auto-filtered)",
+            font=('Segoe UI', 9, 'italic'),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        ).pack(side='left', padx=(0, 10))
+
+        tk.Button(
+            filter_content,
+            text="Analyze",
+            command=self._refresh_synonym_assistant,
+            font=('Segoe UI', 11, 'bold'),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=25,
+            pady=3,
+            cursor='hand2'
+        ).pack(side='left')
+
+        # Results card with full-size treeview
+        results_card = self.create_card(main_content, "Suggestions")
+        results_card.pack(fill='both', expand=True, pady=(0, 10))
+
+        results_content = tk.Frame(results_card, bg=self.colors['card'])
+        results_content.pack(fill='both', expand=True, padx=20, pady=15)
+
+        # Treeview with scrollbars - now fills available space
+        tree_frame = tk.Frame(results_content, bg=self.colors['card'])
+        tree_frame.pack(fill='both', expand=True)
+
+        tree_scroll_y = tk.Scrollbar(tree_frame, orient='vertical')
+        tree_scroll_y.pack(side='right', fill='y')
+
+        tree_scroll_x = tk.Scrollbar(tree_frame, orient='horizontal')
+        tree_scroll_x.pack(side='bottom', fill='x')
+
+        self.assistant_tree = ttk.Treeview(
+            tree_frame,
+            columns=('select', 'topic', 'synonym', 'score', 'freq', 'priority'),
+            show='headings',
+            yscrollcommand=tree_scroll_y.set,
+            xscrollcommand=tree_scroll_x.set,
+            selectmode='extended'
+        )
+
+        # Configure columns with better widths
+        self.assistant_tree.heading('select', text='✓')
+        self.assistant_tree.heading('topic', text='Topic')
+        self.assistant_tree.heading('synonym', text='Suggested Synonym')
+        self.assistant_tree.heading('score', text='Score')
+        self.assistant_tree.heading('freq', text='Frequency')
+        self.assistant_tree.heading('priority', text='Priority')
+
+        self.assistant_tree.column('select', width=40, anchor='center', minwidth=40)
+        self.assistant_tree.column('topic', width=250, anchor='w', minwidth=150)
+        self.assistant_tree.column('synonym', width=250, anchor='w', minwidth=150)
+        self.assistant_tree.column('score', width=80, anchor='center', minwidth=60)
+        self.assistant_tree.column('freq', width=100, anchor='center', minwidth=60)
+        self.assistant_tree.column('priority', width=100, anchor='center', minwidth=70)
+
+        self.assistant_tree.pack(side='left', fill='both', expand=True)
+        tree_scroll_y.config(command=self.assistant_tree.yview)
+        tree_scroll_x.config(command=self.assistant_tree.xview)
+
+        # Selection tracking
+        self._assistant_selected_items = set()
+        self.assistant_tree.bind('<ButtonRelease-1>', self._on_assistant_tree_click)
+
+        # Style for priority colors
+        self.assistant_tree.tag_configure('HIGH', foreground='#16a34a')
+        self.assistant_tree.tag_configure('MEDIUM', foreground='#ca8a04')
+        self.assistant_tree.tag_configure('LOW', foreground='#6b7280')
+
+        # Initialize data storage
+        self._assistant_suggestions = []
+
+        # Action buttons row at bottom
+        action_frame = tk.Frame(main_content, bg=self.colors['card'], relief='solid', bd=1)
+        action_frame.pack(fill='x')
+
+        action_content = tk.Frame(action_frame, bg=self.colors['card'])
+        action_content.pack(fill='x', padx=20, pady=12)
+
+        self.assistant_select_all_btn = tk.Button(
+            action_content,
+            text="Select All",
+            command=self._assistant_select_all,
+            font=('Segoe UI', 10),
+            bg='#6b7280',
+            fg='white',
+            relief='flat',
+            padx=15,
+            cursor='hand2'
+        )
+        self.assistant_select_all_btn.pack(side='left', padx=(0, 5))
+
+        self.assistant_deselect_btn = tk.Button(
+            action_content,
+            text="Deselect All",
+            command=self._assistant_deselect_all,
+            font=('Segoe UI', 10),
+            bg='#6b7280',
+            fg='white',
+            relief='flat',
+            padx=15,
+            cursor='hand2'
+        )
+        self.assistant_deselect_btn.pack(side='left', padx=(0, 20))
+
+        self.assistant_status_label = tk.Label(
+            action_content,
+            text="0 items selected",
+            font=('Segoe UI', 11),
+            bg=self.colors['card'],
+            fg=self.colors['text']
+        )
+        self.assistant_status_label.pack(side='left', padx=(0, 20))
+
+        self.assistant_apply_btn = tk.Button(
+            action_content,
+            text="Apply Selected",
+            command=self._apply_selected_synonyms,
+            font=('Segoe UI', 12, 'bold'),
+            bg=self.colors['secondary'],
+            fg='white',
+            relief='flat',
+            padx=25,
+            pady=5,
+            cursor='hand2',
+            state='disabled'
+        )
+        self.assistant_apply_btn.pack(side='right')
+
+        self.assistant_preview_btn = tk.Button(
+            action_content,
+            text="Preview Changes",
+            command=self._preview_selected_synonyms,
+            font=('Segoe UI', 10),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=15,
+            cursor='hand2',
+            state='disabled'
+        )
+        self.assistant_preview_btn.pack(side='right', padx=(0, 10))
+
     def create_about_tab(self, notebook):
         """Create about tab."""
         frame = tk.Frame(notebook, bg=self.colors['background'])
@@ -1167,11 +2391,14 @@ class TaxonomyMapperGUI:
         countries_list = ", ".join([c['code'] for c in self.available_countries])
 
         info = [
-            ("Application:", "NL Taxonomy Mapper V3"),
-            ("Version:", "3.0.0 Multi-Country"),
+            ("Application:", "NL Taxonomy Mapper"),
+            ("Version:", f"V{VERSION}"),
+            ("Released:", VERSION_DATE),
+            ("Changes:", VERSION_NOTES),
+            ("", ""),
             ("Purpose:", "Match URLs to taxonomy topics using fuzzy matching"),
             ("", ""),
-            ("Features:", "✓ Multi-country support\n✓ Fuzzy string matching\n✓ Language-specific synonyms\n✓ Auto deduplication\n✓ Dynamic topic detection"),
+            ("Features:", "✓ Multi-country support\n✓ Fuzzy string matching\n✓ Language-specific synonyms\n✓ Auto deduplication\n✓ Dynamic topic detection\n✓ URL anchor cleanup"),
             ("", ""),
             ("Countries:", countries_list),
         ]
@@ -1668,7 +2895,10 @@ class TaxonomyMapperGUI:
                 similarity_threshold=self.threshold.get(),
                 consolidate_topics=True,  # Always use consolidated output
                 include_summary=self.use_summary.get(),  # Use Summary column if checked
-                top_n=self.top_n.get()
+                top_n=self.top_n.get(),
+                debug=self.debug_mode.get(),
+                max_rows=self.max_rows_var.get(),
+                url_filter=self.url_filter_var.get()
             )
             
             # Redirect print to log
@@ -1686,7 +2916,7 @@ class TaxonomyMapperGUI:
             sys.stdout = LogWriter(self.log)
             matcher.run()
             sys.stdout = original_stdout
-            
+
             self.log("=" * 50)
             self.log(" Completed successfully!")
             self.log("=" * 50)
@@ -1698,10 +2928,39 @@ class TaxonomyMapperGUI:
                 if self.country_config.save_last_used_taxonomy(country_code, taxonomy_path):
                     self.log(f"Saved taxonomy file as default for {country_code}")
 
-            self.root.after(0, lambda: messagebox.showinfo(
-                "Success",
-                f"Matching completed!\n\nOutput: {self.output_file.get()}"
-            ))
+            # Check for keyword recommendations with synonym suggestions
+            rec_df = getattr(matcher, '_recommendations_df', None)
+            if rec_df is not None and len(rec_df) > 0:
+                synonym_recs = rec_df[
+                    (rec_df['Priority'] == 'HIGH') &
+                    (rec_df['Recommendation'].str.startswith('Add as synonym')) &
+                    (rec_df['Already_In_Synonyms'] != 'Yes')
+                ].copy()
+
+                if len(synonym_recs) > 0:
+                    apply_df = synonym_recs.rename(columns={
+                        'Nearest_Topic': 'Topic',
+                        'Keyword': 'Proposed_Synonym'
+                    })
+                    output_file = self.output_file.get()
+                    total_recs = len(rec_df)
+                    high_count = len(synonym_recs)
+                    self.root.after(0, lambda: self._show_keyword_rec_apply_dialog(
+                        output_file=output_file,
+                        total_recs=total_recs,
+                        high_priority_count=high_count,
+                        apply_df=apply_df
+                    ))
+                else:
+                    self.root.after(0, lambda: messagebox.showinfo(
+                        "Success",
+                        f"Matching completed!\n\nOutput: {self.output_file.get()}"
+                    ))
+            else:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Success",
+                    f"Matching completed!\n\nOutput: {self.output_file.get()}"
+                ))
             
         except Exception as e:
             self.log(f" Error: {str(e)}")
@@ -1847,9 +3106,10 @@ class TaxonomyMapperGUI:
                 pp = PostProcessor()
                 pp.load(output_path)
                 preview = pp.preview_url_patterns()
+                anchor_preview = pp.preview_anchor_cleanup()
                 row_count = len(pp.df)
                 # Show dialog on main thread
-                self.root.after(0, lambda: self._show_pattern_dialog_ui(output_path, preview, row_count))
+                self.root.after(0, lambda: self._show_pattern_dialog_ui(output_path, preview, anchor_preview, row_count))
             except Exception as e:
                 self.root.after(0, lambda: self._pattern_load_error(str(e)))
 
@@ -1865,7 +3125,7 @@ class TaxonomyMapperGUI:
         self.is_processing = False
         messagebox.showerror("Error", f"Failed to load file: {error_msg}")
 
-    def _show_pattern_dialog_ui(self, output_path, preview, row_count):
+    def _show_pattern_dialog_ui(self, output_path, preview, anchor_preview, row_count):
         """Show the pattern filter dialog after loading completes."""
         # Stop progress indicator
         self.progress.stop()
@@ -1948,18 +3208,45 @@ class TaxonomyMapperGUI:
 
         # Defer pattern loading to allow dialog to render first
         dialog.after(100, lambda: self._populate_pattern_dialog(
-            dialog, output_path, preview, row_count, loading_label
+            dialog, output_path, preview, anchor_preview, row_count, loading_label
         ))
 
-    def _populate_pattern_dialog(self, dialog, output_path, preview, row_count, loading_label):
+    def _populate_pattern_dialog(self, dialog, output_path, preview, anchor_preview, row_count, loading_label):
         """Populate the pattern dialog with checkboxes and controls."""
         # Remove loading label
         loading_label.destroy()
 
-        # Instructions
+        # Anchor cleanup info section (always enabled, shows what will be cleaned)
+        total_anchor_urls = sum(data['count'] for data in anchor_preview.values())
+        if total_anchor_urls > 0:
+            anchor_frame = tk.Frame(dialog, bg='#e8f5e9', relief='solid', borderwidth=1)
+            anchor_frame.pack(fill='x', padx=20, pady=(0, 10))
+
+            tk.Label(
+                anchor_frame,
+                text="✓ URL Anchors to Clean (kept, not removed):",
+                font=('Segoe UI', 9, 'bold'),
+                bg='#e8f5e9',
+                fg='#2e7d32'
+            ).pack(anchor='w', padx=10, pady=(8, 2))
+
+            anchor_text = ", ".join([
+                f"{data['description']} ({data['count']})"
+                for name, data in anchor_preview.items() if data['count'] > 0
+            ])
+            tk.Label(
+                anchor_frame,
+                text=f"   {anchor_text}",
+                font=('Segoe UI', 8),
+                bg='#e8f5e9',
+                fg='#388e3c',
+                wraplength=640
+            ).pack(anchor='w', padx=10, pady=(0, 8))
+
+        # Instructions for exclusion patterns
         instructions = tk.Label(
             dialog,
-            text="Select patterns to apply. URLs matching checked patterns will be removed.",
+            text="Select patterns to apply. URLs matching checked patterns will be REMOVED.",
             font=('Segoe UI', 9),
             bg=self.colors['background'],
             fg=self.colors['text_light']
@@ -2441,12 +3728,15 @@ class TaxonomyMapperGUI:
 
             sys.stdout = original_stdout
 
+            urls_cleaned = pp.stats.get('urls_cleaned', 0)
+            cleaned_msg = f"\nURLs cleaned (anchors stripped): {urls_cleaned}" if urls_cleaned else ""
             self.root.after(0, lambda: messagebox.showinfo(
                 "URL Pattern Filter Complete",
                 f"Filtered output saved to:\n{output_path}\n\n"
                 f"Rows before: {pp.stats.get('rows_before', '?')}\n"
                 f"Rows after: {pp.stats.get('rows_after', '?')}\n"
                 f"Removed: {pp.stats.get('rows_removed', '?')} ({pp.stats.get('pct_removed', 0):.1f}%)"
+                f"{cleaned_msg}"
             ))
 
         except Exception as e:
@@ -2840,7 +4130,10 @@ class TaxonomyMapperGUI:
                 similarity_threshold=self.threshold.get(),
                 consolidate_topics=True,
                 include_summary=self.use_summary.get(),
-                top_n=self.top_n.get()
+                top_n=self.top_n.get(),
+                debug=self.debug_mode.get(),
+                max_rows=self.max_rows_var.get(),
+                url_filter=self.url_filter_var.get()
             )
             matcher.run()
 
@@ -2877,6 +4170,1083 @@ class TaxonomyMapperGUI:
         self.progress.stop()
         self.processing_status.config(text="✓ URL remap complete!")
         self.remap_btn.config(state='normal')
+        self.is_processing = False
+        self.status_label.config(text="Ready")
+        self.root.after(3000, lambda: self.processing_status.config(text=""))
+
+    # ==================== STRICT CONTENT MATCH METHODS ====================
+
+    def show_strict_match_dialog(self):
+        """Show dialog for running strict content-based matching."""
+        if self.is_processing:
+            messagebox.showwarning("Warning", "Already processing")
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Strict Content Match")
+        dialog.geometry("650x460")
+        dialog.resizable(False, False)
+        dialog.configure(bg=self.colors['background'])
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Header
+        tk.Label(
+            dialog,
+            text="📋 Strict Content Match",
+            font=('Segoe UI', 14, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(pady=(15, 5))
+        tk.Label(
+            dialog,
+            text="Generates topics directly from page content (Title, Summary, Description, URL).\n"
+                 "No taxonomy dependency — creates its own topics from what the page discusses.",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light'],
+            justify='center'
+        ).pack(pady=(0, 15))
+
+        # File inputs
+        file_frame = tk.Frame(dialog, bg=self.colors['background'])
+        file_frame.pack(fill='x', padx=20)
+
+        # Semantic file (pre-filled from Setup tab)
+        semantic_var = tk.StringVar(value=self.semantic_file.get())
+        tk.Label(file_frame, text="Semantic/Keywords File:", font=('Segoe UI', 10),
+                 bg=self.colors['background'], fg=self.colors['text']).grid(row=0, column=0, sticky='w', pady=5)
+        semantic_entry = tk.Entry(file_frame, textvariable=semantic_var, font=('Segoe UI', 9), width=50)
+        semantic_entry.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
+        tk.Button(file_frame, text="Browse", font=('Segoe UI', 9),
+                  command=lambda: semantic_var.set(
+                      filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")]) or semantic_var.get()
+                  )).grid(row=0, column=2, padx=5, pady=5)
+
+        # Output file
+        default_output = self.output_file.get().replace('taxonomy_match', 'strict_match')
+        if not default_output.startswith('strict_'):
+            default_output = 'strict_match_' + self.selected_country.get() + '.xlsx'
+        output_var = tk.StringVar(value=default_output)
+        tk.Label(file_frame, text="Output File:", font=('Segoe UI', 10),
+                 bg=self.colors['background'], fg=self.colors['text']).grid(row=1, column=0, sticky='w', pady=5)
+        output_entry = tk.Entry(file_frame, textvariable=output_var, font=('Segoe UI', 9), width=50)
+        output_entry.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
+        tk.Button(file_frame, text="Browse", font=('Segoe UI', 9),
+                  command=lambda: output_var.set(
+                      filedialog.asksaveasfilename(defaultextension=".xlsx",
+                                                   filetypes=[("Excel", "*.xlsx")]) or output_var.get()
+                  )).grid(row=1, column=2, padx=5, pady=5)
+
+        file_frame.columnconfigure(1, weight=1)
+
+        # Topic Sources section
+        sources_frame = tk.LabelFrame(
+            dialog, text="Topic Sources", font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['background'], fg=self.colors['text'],
+            padx=15, pady=8
+        )
+        sources_frame.pack(fill='x', padx=20, pady=(10, 0))
+
+        src_title_var = tk.BooleanVar(value=True)
+        src_url_var = tk.BooleanVar(value=True)
+        src_content_var = tk.BooleanVar(value=True)
+        src_crawl_var = tk.BooleanVar(value=False)
+
+        checks_row = tk.Frame(sources_frame, bg=self.colors['background'])
+        checks_row.pack(fill='x')
+
+        tk.Checkbutton(checks_row, text="Title", variable=src_title_var,
+                        font=('Segoe UI', 9), bg=self.colors['background'],
+                        fg=self.colors['text'], selectcolor=self.colors['background'],
+                        activebackground=self.colors['background']).pack(side='left', padx=(0, 15))
+        tk.Checkbutton(checks_row, text="URL Path", variable=src_url_var,
+                        font=('Segoe UI', 9), bg=self.colors['background'],
+                        fg=self.colors['text'], selectcolor=self.colors['background'],
+                        activebackground=self.colors['background']).pack(side='left', padx=(0, 15))
+        tk.Checkbutton(checks_row, text="Content (Summary/Description)", variable=src_content_var,
+                        font=('Segoe UI', 9), bg=self.colors['background'],
+                        fg=self.colors['text'], selectcolor=self.colors['background'],
+                        activebackground=self.colors['background']).pack(side='left', padx=(0, 15))
+        tk.Checkbutton(checks_row, text="Crawl URLs", variable=src_crawl_var,
+                        font=('Segoe UI', 9), bg=self.colors['background'],
+                        fg=self.colors['text'], selectcolor=self.colors['background'],
+                        activebackground=self.colors['background']).pack(side='left')
+
+        crawl_note = tk.Label(
+            sources_frame,
+            text="Crawl fetches live page content via Trafilatura (pip install trafilatura)",
+            font=('Segoe UI', 8, 'italic'),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        )
+        crawl_note.pack(anchor='w', pady=(4, 0))
+
+        # Buttons
+        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
+        btn_frame.pack(pady=20)
+
+        def run_strict():
+            sem = semantic_var.get()
+            out = output_var.get()
+            if not sem:
+                messagebox.showwarning("Missing File", "Please select the semantic/keywords file.")
+                return
+
+            # Build sources list from checkboxes
+            sources = []
+            if src_title_var.get():
+                sources.append('title')
+            if src_url_var.get():
+                sources.append('url')
+            if src_content_var.get():
+                sources.append('content')
+            if src_crawl_var.get():
+                sources.append('crawl')
+
+            if not sources:
+                messagebox.showwarning("No Sources", "Select at least one topic source.")
+                return
+
+            dialog.destroy()
+
+            self.is_processing = True
+            self.strict_match_btn.config(state='disabled')
+            self.progress.start(10)
+            self.processing_status.config(text="📋 Running strict content matching...")
+            self.status_label.config(text="Strict matching...")
+            self.clear_log()
+
+            thread = threading.Thread(
+                target=self._strict_match_worker,
+                args=(sem, out, sources),
+                daemon=True
+            )
+            thread.start()
+
+        tk.Button(btn_frame, text="▶ Run Strict Match", command=run_strict,
+                  font=('Segoe UI', 11, 'bold'), bg='#f59e0b', fg='white',
+                  relief='flat', padx=30, pady=10, cursor='hand2').pack(side='left', padx=10)
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy,
+                  font=('Segoe UI', 11), bg='#6b7280', fg='white',
+                  relief='flat', padx=30, pady=10, cursor='hand2').pack(side='left', padx=10)
+
+    def _strict_match_worker(self, semantic_path, output_path, sources=None):
+        """Background worker for strict content matching."""
+        try:
+            self.log("=" * 50)
+            self.log("Starting Strict Content Match")
+            self.log("=" * 50)
+
+            original_stdout = sys.stdout
+
+            class LogWriter:
+                def __init__(self, log_func):
+                    self.log_func = log_func
+                def write(self, text):
+                    if text.strip():
+                        self.log_func(text.strip())
+                def flush(self):
+                    pass
+
+            sys.stdout = LogWriter(self.log)
+
+            matcher = StrictContentMatcher(
+                country_code=self.selected_country.get(),
+                semantic_file=semantic_path,
+                output_file=output_path,
+                top_n=self.top_n.get(),
+                debug=self.debug_mode.get(),
+                max_rows=self.max_rows_var.get(),
+                url_filter=self.url_filter_var.get(),
+                sources=sources
+            )
+            matcher.run()
+
+            sys.stdout = original_stdout
+
+            self.log("\n" + "=" * 50)
+            self.log("Strict content matching completed!")
+            self.log(f"  Output: {output_path}")
+            self.log("=" * 50)
+
+            self.root.after(0, lambda: messagebox.showinfo(
+                "Strict Match Complete",
+                f"Strict content matching completed!\n\n"
+                f"Output saved to:\n{output_path}"
+            ))
+
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            self.log(f"\nError during strict match: {str(e)}")
+            self.root.after(0, lambda: messagebox.showerror("Strict Match Error", str(e)))
+
+        finally:
+            self.root.after(0, self._strict_match_finish)
+
+    def _strict_match_finish(self):
+        """Finish strict match processing."""
+        self.progress.stop()
+        self.processing_status.config(text="Strict content matching complete!")
+        self.strict_match_btn.config(state='normal')
+        self.is_processing = False
+        self.status_label.config(text="Ready")
+        self.root.after(3000, lambda: self.processing_status.config(text=""))
+
+    # ==================== EXTRACT CONTENT KEYWORDS METHODS ====================
+
+    def show_extract_keywords_dialog(self):
+        """Show dialog for extracting keywords from content columns."""
+        if self.is_processing:
+            messagebox.showwarning("Warning", "Already processing")
+            return
+
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Extract Content Keywords")
+        dialog.geometry("650x480")
+        dialog.configure(bg=self.colors['background'])
+        dialog.resizable(True, True)
+        dialog.grab_set()
+        dialog.focus_set()
+
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (650 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (480 // 2)
+        if y < 0:
+            y = 20
+        dialog.geometry(f"650x480+{x}+{y}")
+
+        # Header
+        tk.Label(
+            dialog,
+            text="🔍 Extract Content Keywords",
+            font=('Segoe UI', 14, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(pady=(15, 5))
+
+        tk.Label(
+            dialog,
+            text="Extract keywords from URL path, Title, Summary, and Description.\n"
+                 "Output file can be used as Semantic File in Remap URLs.",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light'],
+            justify='center'
+        ).pack(pady=(0, 15))
+
+        # File inputs frame
+        inputs_frame = tk.Frame(dialog, bg=self.colors['card'], relief='solid', bd=1)
+        inputs_frame.pack(fill='x', padx=20, pady=10)
+
+        # Variables for file paths
+        self.extract_input_file = tk.StringVar()
+        self.extract_taxonomy_file = tk.StringVar()
+        self.extract_output_file = tk.StringVar()
+
+        # Pre-fill taxonomy from current selection if available
+        if self.taxonomy_file.get():
+            self.extract_taxonomy_file.set(self.taxonomy_file.get())
+
+        # Row 1: Input file
+        row1 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row1.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row1,
+            text="Input File:",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row1,
+            textvariable=self.extract_input_file,
+            font=('Segoe UI', 9),
+            width=40
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row1,
+            text="Browse",
+            command=lambda: self._browse_extract_file(self.extract_input_file, "Select Input File (with URL/Title/Summary/Description)"),
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Row 2: Taxonomy file (optional for ranking)
+        row2 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row2.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row2,
+            text="Taxonomy File (optional):",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row2,
+            textvariable=self.extract_taxonomy_file,
+            font=('Segoe UI', 9),
+            width=40
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row2,
+            text="Browse",
+            command=lambda: self._browse_extract_file(self.extract_taxonomy_file, "Select Taxonomy File (for ranking)"),
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Row 3: Output file
+        row3 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row3.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row3,
+            text="Output File:",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row3,
+            textvariable=self.extract_output_file,
+            font=('Segoe UI', 9),
+            width=40
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row3,
+            text="Browse",
+            command=self._browse_extract_output,
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Options frame
+        options_frame = tk.Frame(dialog, bg=self.colors['card'], relief='solid', bd=1)
+        options_frame.pack(fill='x', padx=20, pady=10)
+
+        # Crawl URLs checkbox
+        self.extract_crawl_urls = tk.BooleanVar(value=False)
+        crawl_frame = tk.Frame(options_frame, bg=self.colors['card'])
+        crawl_frame.pack(fill='x', padx=15, pady=10)
+
+        crawl_cb = tk.Checkbutton(
+            crawl_frame,
+            text="🌐 Crawl URLs for content",
+            variable=self.extract_crawl_urls,
+            command=lambda: self._update_extract_output_name() if self.extract_input_file.get() else None,
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            activebackground=self.colors['card'],
+            selectcolor=self.colors['card']
+        )
+        crawl_cb.pack(side='left')
+
+        tk.Label(
+            crawl_frame,
+            text="(Fetch actual page content - much better keywords, but slower)",
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        ).pack(side='left', padx=(10, 0))
+
+        # Info label
+        info_frame = tk.Frame(dialog, bg=self.colors['background'])
+        info_frame.pack(fill='x', padx=20, pady=10)
+
+        tk.Label(
+            info_frame,
+            text="ℹ️ Crawl URLs: Fetches actual page content (skips headers/footers). Much better\n"
+                 "   keywords than truncated Summary/Description columns. Uses 10 concurrent threads.\n"
+                 "   Taxonomy file is optional - if provided, matching keywords are ranked higher.",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light'],
+            justify='left'
+        ).pack(anchor='w')
+
+        # Buttons frame
+        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
+        btn_frame.pack(pady=15)
+
+        tk.Button(
+            btn_frame,
+            text="▶ Extract Keywords",
+            command=lambda: self._run_extract_keywords(dialog),
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['secondary'],
+            fg='white',
+            relief='flat',
+            padx=25,
+            pady=10,
+            cursor='hand2'
+        ).pack(side='left', padx=10)
+
+        tk.Button(
+            btn_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            font=('Segoe UI', 10),
+            bg=self.colors['text_light'],
+            fg='white',
+            relief='flat',
+            padx=25,
+            pady=10,
+            cursor='hand2'
+        ).pack(side='left', padx=10)
+
+    def _browse_extract_file(self, var, title):
+        """Browse for input/taxonomy file."""
+        filepath = filedialog.askopenfilename(
+            title=title,
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if filepath:
+            var.set(filepath)
+            # Auto-generate output filename based on input
+            if var == self.extract_input_file:
+                self._update_extract_output_name(filepath)
+
+    def _update_extract_output_name(self, input_path=None):
+        """Auto-generate output filename with mode and datetime.
+
+        Format: Content_Keywords_{mode}_{datetime}.xlsx
+        Where mode is 'crawl' or 'text' and datetime is YYYYMMDD_HHMMSS.
+        """
+        from datetime import datetime
+        mode = "crawl" if self.extract_crawl_urls.get() else "text"
+        dt = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if input_path:
+            folder = os.path.dirname(input_path)
+        else:
+            folder = os.path.dirname(self.extract_input_file.get() or "")
+
+        filename = f"Content_Keywords_{mode}_{dt}.xlsx"
+        if folder:
+            self.extract_output_file.set(os.path.join(folder, filename))
+        else:
+            self.extract_output_file.set(filename)
+
+    def _browse_extract_output(self):
+        """Browse for output file location."""
+        filepath = filedialog.asksaveasfilename(
+            title="Save Keywords File As",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialfile=os.path.basename(self.extract_output_file.get()) or "Content_Keywords.xlsx",
+            initialdir=os.path.dirname(self.extract_output_file.get()) or None
+        )
+        if filepath:
+            self.extract_output_file.set(filepath)
+
+    def _run_extract_keywords(self, dialog):
+        """Validate inputs and run the keyword extraction."""
+        input_path = self.extract_input_file.get()
+        taxonomy_path = self.extract_taxonomy_file.get()
+        crawl_urls = self.extract_crawl_urls.get()
+
+        # Refresh output filename with current mode and fresh timestamp
+        self._update_extract_output_name()
+        output_path = self.extract_output_file.get()
+
+        # Validate inputs
+        errors = []
+        if not input_path or not os.path.exists(input_path):
+            errors.append("Please select a valid input file")
+        if not output_path:
+            errors.append("Please specify an output file")
+
+        # Taxonomy is optional - don't error if not provided
+        if taxonomy_path and not os.path.exists(taxonomy_path):
+            errors.append("Taxonomy file not found (leave empty to skip taxonomy ranking)")
+
+        if errors:
+            messagebox.showerror("Validation Error", "\n".join(errors))
+            return
+
+        # Close dialog and start processing
+        dialog.destroy()
+
+        self.is_processing = True
+        self.extract_keywords_btn.config(state='disabled')
+        self.progress.start(10)
+        if crawl_urls:
+            self.processing_status.config(text="🌐 Crawling URLs and extracting keywords...")
+        else:
+            self.processing_status.config(text="🔍 Extracting keywords from content...")
+        self.status_label.config(text="Extracting...")
+        self.clear_log()
+
+        # Load synonyms for extraction
+        synonyms = self.country_config.load_synonyms(self.selected_country.get())
+
+        thread = threading.Thread(
+            target=self._extract_keywords_worker,
+            args=(input_path, taxonomy_path if taxonomy_path else None, output_path, synonyms, crawl_urls),
+            daemon=True
+        )
+        thread.start()
+
+    def _extract_keywords_worker(self, input_path, taxonomy_path, output_path, synonyms, crawl_urls=False):
+        """Background worker for keyword extraction."""
+        try:
+            from content_keyword_extractor import ContentKeywordExtractor, CRAWLING_AVAILABLE
+
+            self.log("=" * 50)
+            self.log("Starting Content Keyword Extraction")
+            if crawl_urls:
+                self.log("  Mode: CRAWL URLs for content")
+            else:
+                self.log("  Mode: Use Summary/Description columns")
+            self.log("=" * 50)
+
+            self.log(f"\n[1/4] Loading input file...")
+            self.log(f"  File: {os.path.basename(input_path)}")
+
+            if taxonomy_path:
+                self.log(f"\n[2/4] Loading taxonomy for ranking...")
+                self.log(f"  File: {os.path.basename(taxonomy_path)}")
+            else:
+                self.log(f"\n[2/4] No taxonomy file - using generic ranking")
+
+            if crawl_urls:
+                if not CRAWLING_AVAILABLE:
+                    self.log(f"\n⚠️ Warning: requests/beautifulsoup4 not installed.")
+                    self.log(f"   Run: pip install requests beautifulsoup4")
+                    self.log(f"   Falling back to Summary/Description columns.")
+                    crawl_urls = False
+                else:
+                    self.log(f"\n[3/4] Crawling URLs for content (10 concurrent threads)...")
+            else:
+                self.log(f"\n[3/4] Extracting keywords from columns...")
+
+            self.log(f"\n[4/4] Processing...")
+
+            # Redirect stdout to capture extractor output
+            original_stdout = sys.stdout
+
+            class LogWriter:
+                def __init__(self, log_func):
+                    self.log_func = log_func
+                def write(self, text):
+                    if text.strip():
+                        self.log_func(text.strip())
+                def flush(self):
+                    pass
+
+            sys.stdout = LogWriter(self.log)
+
+            # Create extractor and process
+            extractor = ContentKeywordExtractor(
+                taxonomy_file=taxonomy_path,
+                synonyms=synonyms,
+                threshold=self.threshold.get(),
+                crawl_urls=crawl_urls,
+                max_workers=10
+            )
+
+            result_df = extractor.process_file(
+                input_file=input_path,
+                output_file=output_path
+            )
+
+            sys.stdout = original_stdout
+
+            rows_processed = len(result_df)
+            keywords_extracted = sum(1 for _, row in result_df.iterrows()
+                                      if row.get('Keyword 1', ''))
+
+            # Build summary message
+            crawl_info = ""
+            if crawl_urls:
+                crawl_info = f"\nURLs crawled: {extractor.crawl_stats['success']:,} success, {extractor.crawl_stats['failed']:,} failed"
+
+            self.log("\n" + "=" * 50)
+            self.log("✓ Keyword extraction completed!")
+            self.log(f"  Rows processed: {rows_processed:,}")
+            if crawl_urls:
+                self.log(f"  URLs crawled: {extractor.crawl_stats['success']:,} success, {extractor.crawl_stats['failed']:,} failed")
+            self.log(f"  Rows with keywords: {keywords_extracted:,}")
+            self.log(f"  Output: {output_path}")
+            self.log("=" * 50)
+
+            self.root.after(0, lambda: messagebox.showinfo(
+                "Extraction Complete",
+                f"Keyword extraction completed!\n\n"
+                f"Rows processed: {rows_processed:,}{crawl_info}\n"
+                f"Rows with keywords: {keywords_extracted:,}\n\n"
+                f"Output saved to:\n{output_path}\n\n"
+                f"You can now use this file as the Semantic File in 'Remap URLs'."
+            ))
+
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            self.log(f"\n❌ Error during extraction: {str(e)}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.root.after(0, lambda: messagebox.showerror("Extraction Error", str(e)))
+
+        finally:
+            self.root.after(0, self._extract_keywords_finish)
+
+    def _extract_keywords_finish(self):
+        """Finish keyword extraction processing."""
+        self.progress.stop()
+        self.processing_status.config(text="✓ Keyword extraction complete!")
+        self.extract_keywords_btn.config(state='normal')
+        self.is_processing = False
+        self.status_label.config(text="Ready")
+        self.root.after(3000, lambda: self.processing_status.config(text=""))
+
+    # ==================== SALESFORCE CSV IMPORT METHODS ====================
+
+    def show_import_salesforce_csv_dialog(self):
+        """Show dialog for importing Salesforce Knowledge CSV exports."""
+        if self.is_processing:
+            messagebox.showwarning("Warning", "Already processing")
+            return
+
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Import Salesforce CSV")
+        dialog.geometry("750x520")
+        dialog.configure(bg=self.colors['background'])
+        dialog.resizable(True, True)
+        dialog.grab_set()
+        dialog.focus_set()
+
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (750 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (520 // 2)
+        if y < 0:
+            y = 20
+        dialog.geometry(f"750x520+{x}+{y}")
+
+        # Header
+        tk.Label(
+            dialog,
+            text="📥 Import Salesforce Knowledge CSV",
+            font=('Segoe UI', 14, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(pady=(15, 5))
+
+        tk.Label(
+            dialog,
+            text="Process Salesforce Knowledge CSV exports (handles 482+ column exports).\n"
+                 "Extracts URLs from HTML anchors, converts to public URLs, generates keywords.\n"
+                 "Output can be used directly as Semantic File for taxonomy matching.",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light'],
+            justify='center'
+        ).pack(pady=(0, 15))
+
+        # File inputs frame
+        inputs_frame = tk.Frame(dialog, bg=self.colors['card'], relief='solid', bd=1)
+        inputs_frame.pack(fill='x', padx=20, pady=10)
+
+        # Variables for file paths
+        self.sf_csv_input_file = tk.StringVar()
+        self.sf_csv_taxonomy_file = tk.StringVar()
+        self.sf_csv_output_file = tk.StringVar()
+        self.sf_csv_country = tk.StringVar()
+
+        # Pre-fill from current selection if available
+        if self.taxonomy_file.get():
+            self.sf_csv_taxonomy_file.set(self.taxonomy_file.get())
+        if self.selected_country.get():
+            self.sf_csv_country.set(self.selected_country.get())
+
+        # Row 1: Input CSV file
+        row1 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row1.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row1,
+            text="Salesforce CSV File:",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row1,
+            textvariable=self.sf_csv_input_file,
+            font=('Segoe UI', 9),
+            width=45
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row1,
+            text="Browse",
+            command=lambda: self._browse_sf_csv_file(self.sf_csv_input_file, "Select Salesforce Knowledge CSV"),
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Row 2: Country selection
+        row2 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row2.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row2,
+            text="Country Code:",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        country_combo = ttk.Combobox(
+            row2,
+            textvariable=self.sf_csv_country,
+            values=['BE', 'NL', 'SE'],
+            font=('Segoe UI', 9),
+            state='readonly',
+            width=10
+        )
+        country_combo.pack(side='left', padx=(0, 5))
+
+        tk.Label(
+            row2,
+            text="(for Lightning URL conversion)",
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text_light']
+        ).pack(side='left', padx=(10, 0))
+
+        # Row 3: Taxonomy file (optional for ranking)
+        row3 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row3.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row3,
+            text="Taxonomy File (optional):",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row3,
+            textvariable=self.sf_csv_taxonomy_file,
+            font=('Segoe UI', 9),
+            width=45
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row3,
+            text="Browse",
+            command=lambda: self._browse_sf_csv_file(self.sf_csv_taxonomy_file, "Select Taxonomy File (for keyword ranking)"),
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Row 4: Output file
+        row4 = tk.Frame(inputs_frame, bg=self.colors['card'])
+        row4.pack(fill='x', padx=15, pady=10)
+
+        tk.Label(
+            row4,
+            text="Output File:",
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            width=22,
+            anchor='w'
+        ).pack(side='left')
+
+        tk.Entry(
+            row4,
+            textvariable=self.sf_csv_output_file,
+            font=('Segoe UI', 9),
+            width=45
+        ).pack(side='left', padx=(0, 5))
+
+        tk.Button(
+            row4,
+            text="Browse",
+            command=self._browse_sf_csv_output,
+            font=('Segoe UI', 8),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=10
+        ).pack(side='left')
+
+        # Info frame
+        info_frame = tk.Frame(dialog, bg=self.colors['background'])
+        info_frame.pack(fill='x', padx=20, pady=10)
+
+        tk.Label(
+            info_frame,
+            text="ℹ️ This feature handles the '482-column mess' from Salesforce exports:\n"
+                 "   • Auto-detects useful columns (URL, Title, Summary, Answer__c)\n"
+                 "   • Extracts URLs from HTML anchor tags\n"
+                 "   • Converts Lightning URLs to public community URLs\n"
+                 "   • Generates Keyword 1-12 from content\n"
+                 "   • Taxonomy file is optional - if provided, keywords are ranked by match score",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light'],
+            justify='left'
+        ).pack(anchor='w')
+
+        # Buttons frame
+        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
+        btn_frame.pack(pady=15)
+
+        tk.Button(
+            btn_frame,
+            text="▶ Import CSV",
+            command=lambda: self._run_import_salesforce_csv(dialog),
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['secondary'],
+            fg='white',
+            relief='flat',
+            padx=25,
+            pady=10,
+            cursor='hand2'
+        ).pack(side='left', padx=10)
+
+        tk.Button(
+            btn_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            font=('Segoe UI', 10),
+            bg=self.colors['text_light'],
+            fg='white',
+            relief='flat',
+            padx=25,
+            pady=10,
+            cursor='hand2'
+        ).pack(side='left', padx=10)
+
+    def _browse_sf_csv_file(self, var, title):
+        """Browse for input/taxonomy file."""
+        if "CSV" in title:
+            filetypes = [("CSV files", "*.csv"), ("All files", "*.*")]
+        else:
+            filetypes = [("Excel files", "*.xlsx"), ("All files", "*.*")]
+
+        filepath = filedialog.askopenfilename(title=title, filetypes=filetypes)
+        if filepath:
+            var.set(filepath)
+            # Auto-generate output filename based on input
+            if var == self.sf_csv_input_file:
+                self._update_sf_csv_output_name(filepath)
+
+    def _update_sf_csv_output_name(self, input_path=None):
+        """Auto-generate output filename: Semantic_{country}_{datetime}.xlsx"""
+        from datetime import datetime
+        country = self.sf_csv_country.get() or 'XX'
+        dt = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if input_path:
+            folder = os.path.dirname(input_path)
+        else:
+            input_val = self.sf_csv_input_file.get()
+            folder = os.path.dirname(input_val) if input_val else os.getcwd()
+
+        output_name = f"Semantic_{country}_{dt}.xlsx"
+        self.sf_csv_output_file.set(os.path.join(folder, output_name))
+
+    def _browse_sf_csv_output(self):
+        """Browse for output file."""
+        filepath = filedialog.asksaveasfilename(
+            title="Select Output File",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if filepath:
+            self.sf_csv_output_file.set(filepath)
+
+    def _run_import_salesforce_csv(self, dialog):
+        """Validate inputs and run the Salesforce CSV import."""
+        input_path = self.sf_csv_input_file.get()
+        taxonomy_path = self.sf_csv_taxonomy_file.get()
+        country = self.sf_csv_country.get()
+
+        # Refresh output filename with current country and fresh timestamp
+        self._update_sf_csv_output_name()
+        output_path = self.sf_csv_output_file.get()
+
+        # Validate inputs
+        errors = []
+        if not input_path or not os.path.exists(input_path):
+            errors.append("Please select a valid Salesforce CSV file")
+        if not country:
+            errors.append("Please select a country code")
+        if country and country.upper() not in ['BE', 'NL', 'SE']:
+            errors.append("Country must be BE, NL, or SE")
+        if not output_path:
+            errors.append("Please specify an output file")
+
+        # Taxonomy is optional - don't error if not provided
+        if taxonomy_path and not os.path.exists(taxonomy_path):
+            errors.append("Taxonomy file not found (leave empty to skip keyword ranking)")
+
+        if errors:
+            messagebox.showerror("Validation Error", "\n".join(errors))
+            return
+
+        # Close dialog and start processing
+        dialog.destroy()
+
+        self.is_processing = True
+        self.import_sf_csv_btn.config(state='disabled')
+        self.progress.start(10)
+        self.processing_status.config(text="📥 Importing Salesforce CSV...")
+        self.status_label.config(text="Importing...")
+        self.clear_log()
+
+        thread = threading.Thread(
+            target=self._import_salesforce_csv_worker,
+            args=(input_path, taxonomy_path if taxonomy_path else None, output_path, country.upper(), self.threshold.get()),
+            daemon=True
+        )
+        thread.start()
+
+    def _import_salesforce_csv_worker(self, input_path, taxonomy_path, output_path, country_code, threshold):
+        """Background worker for Salesforce CSV import."""
+        try:
+            from salesforce_csv_processor import process_salesforce_csv
+
+            self.log("=" * 60)
+            self.log("Starting Salesforce CSV Import")
+            self.log("=" * 60)
+
+            self.log(f"\n[1/5] Loading CSV file...")
+            self.log(f"  File: {os.path.basename(input_path)}")
+            self.log(f"  Country: {country_code}")
+
+            if taxonomy_path:
+                self.log(f"\n[2/5] Loading taxonomy for keyword ranking...")
+                self.log(f"  File: {os.path.basename(taxonomy_path)}")
+            else:
+                self.log(f"\n[2/5] No taxonomy file - using generic keyword ranking")
+
+            # Progress callback
+            def progress_update(pct, msg):
+                self.log(f"  [{pct:3d}%] {msg}")
+
+            self.log(f"\n[3/5] Processing CSV (auto-detecting columns)...")
+            self.log(f"[4/5] Extracting URLs and converting to public format...")
+            self.log(f"[5/5] Generating keywords...")
+
+            # Process CSV
+            result = process_salesforce_csv(
+                input_csv=input_path,
+                output_file=output_path,
+                country_code=country_code,
+                taxonomy_file=taxonomy_path,
+                threshold=threshold,
+                progress_callback=progress_update
+            )
+
+            self.log("\n" + "=" * 60)
+            self.log("✓ Salesforce CSV import completed!")
+            self.log(f"  Input rows: {result['total_rows']:,}")
+            self.log(f"  Unique URLs: {result['unique_urls']:,}")
+            self.log(f"  Output rows: {result['output_rows']:,}")
+            if result.get('duplicates_removed', 0) > 0:
+                self.log(f"  Duplicates removed: {result['duplicates_removed']:,}")
+            if result.get('multi_product_expansion', 0) > 0:
+                self.log(f"  Multi-product expansion: +{result['multi_product_expansion']:,} rows")
+            self.log(f"  URLs extracted: {result['urls_extracted']:,}")
+            self.log(f"  URLs converted: {result['urls_converted']:,} (Lightning → public)")
+            if result.get('products_extracted', 0) > 0:
+                self.log(f"  Products assigned: {result['products_extracted']:,} unique URLs")
+                if result.get('top_products'):
+                    self.log(f"  Top categories: {', '.join(result['top_products'][:3])}")
+            self.log(f"  Keywords generated: {result['keywords_generated']:,}")
+            self.log(f"  Output: {output_path}")
+            self.log("=" * 60)
+
+            # Auto-populate semantic file field
+            self.root.after(0, lambda: self.semantic_file.set(output_path))
+
+            # Build success message
+            expansion_info = ""
+            if result.get('multi_product_expansion', 0) > 0:
+                expansion_info = f"Multi-product expansion: +{result['multi_product_expansion']:,} rows\n"
+
+            products_info = ""
+            if result.get('products_extracted', 0) > 0:
+                products_info = f"Products assigned: {result['products_extracted']:,} unique URLs\n"
+                if result.get('top_products'):
+                    top_3 = ', '.join(result['top_products'][:3])
+                    products_info += f"Top categories: {top_3}\n"
+
+            self.root.after(0, lambda: messagebox.showinfo(
+                "Import Complete",
+                f"Salesforce CSV import completed!\n\n"
+                f"Input rows: {result['total_rows']:,}\n"
+                f"Unique URLs: {result['unique_urls']:,}\n"
+                f"Output rows: {result['output_rows']:,}\n"
+                f"{expansion_info}"
+                f"URLs converted: {result['urls_converted']:,}\n"
+                f"{products_info}"
+                f"Keywords generated: {result['keywords_generated']:,}\n\n"
+                f"Output saved to:\n{output_path}\n\n"
+                f"✓ Semantic file field auto-populated.\n"
+                f"You can now click 'Run Taxonomy Match' to match against taxonomy."
+            ))
+
+        except Exception as e:
+            self.log(f"\n❌ Error during import: {str(e)}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.root.after(0, lambda: messagebox.showerror("Import Error", str(e)))
+
+        finally:
+            self.root.after(0, self._import_salesforce_csv_finish)
+
+    def _import_salesforce_csv_finish(self):
+        """Finish Salesforce CSV import processing."""
+        self.progress.stop()
+        self.processing_status.config(text="✓ CSV import complete!")
+        self.import_sf_csv_btn.config(state='normal')
         self.is_processing = False
         self.status_label.config(text="Ready")
         self.root.after(3000, lambda: self.processing_status.config(text=""))
@@ -4052,11 +6422,35 @@ class TaxonomyMapperGUI:
         self.topic_stats.config(text=f"{len(filtered)} topics (filtered), {total_variations} variations")
 
     def populate_topic_list(self, topics):
-        """Populate topic listbox with given topics."""
+        """Populate topic listbox with given topics, highlighting those without synonyms."""
         self.topic_listbox.delete(0, 'end')
+        synonyms_dict = self.get_synonyms_dict()
+
+        no_synonym_count = 0
         for topic in topics:
             if not topic.startswith('_comment'):
                 self.topic_listbox.insert('end', topic)
+                idx = self.topic_listbox.size() - 1
+
+                # Highlight topics without synonyms in orange
+                synonyms = synonyms_dict.get(topic, [])
+                if not synonyms:  # Empty list or not found
+                    self.topic_listbox.itemconfig(idx, fg='#ea580c')  # Orange color
+                    no_synonym_count += 1
+
+        # Update statistics to show count of topics without synonyms
+        self._update_no_synonym_indicator(no_synonym_count, len(topics))
+
+    def _update_no_synonym_indicator(self, no_synonym_count, total_count):
+        """Update indicator showing topics without synonyms."""
+        if no_synonym_count > 0:
+            self.topic_stats.config(
+                text=f"{total_count} topics, {no_synonym_count} without synonyms (orange)",
+                fg='#ea580c'  # Orange
+            )
+        else:
+            # Will be overwritten by update_statistics() but provides immediate feedback
+            pass
 
     def mark_as_changed(self):
         """Mark editor as having unsaved changes."""
@@ -4085,7 +6479,21 @@ class TaxonomyMapperGUI:
         synonyms_dict = self.current_synonyms.get('synonyms', {})
         topics = [k for k in synonyms_dict.keys() if not k.startswith('_comment')]
         total_variations = sum(len(v) for k, v in synonyms_dict.items() if not k.startswith('_comment'))
-        self.topic_stats.config(text=f"{len(topics)} topics, {total_variations} variations")
+
+        # Count topics without synonyms
+        no_synonym_count = sum(1 for k, v in synonyms_dict.items()
+                               if not k.startswith('_comment') and len(v) == 0)
+
+        if no_synonym_count > 0:
+            self.topic_stats.config(
+                text=f"{len(topics)} topics, {total_variations} synonyms, {no_synonym_count} empty (orange)",
+                fg='#ea580c'  # Orange
+            )
+        else:
+            self.topic_stats.config(
+                text=f"{len(topics)} topics, {total_variations} synonyms",
+                fg=self.colors['text_light']
+            )
 
     def generate_synonym_report(self):
         """Generate proposed synonyms report from semantic keywords vs taxonomy topics."""
@@ -4247,16 +6655,374 @@ class TaxonomyMapperGUI:
             self.log(f"  - Unmapped high-freq keywords: {len(unmapped)}")
 
             self.report_status_label.config(text="Complete!", fg=self.colors['secondary'])
-            messagebox.showinfo("Success", f"Report saved to:\n{output_file}\n\n"
-                                           f"Total synonyms proposed: {len(df_results)}\n"
-                                           f"Already added: {already_added_count}\n"
-                                           f"NEW to add: {new_count}\n"
-                                           f"HIGH priority (new): {high_priority_new}")
+
+            # Store results for potential batch apply
+            self._last_synonym_suggestions = df_results
+            self._last_high_priority_new = high_priority[high_priority['Already_Added'] == 'No']
+
+            # Show dialog with option to apply synonyms
+            self._show_synonym_apply_dialog(
+                output_file=output_file,
+                total_count=len(df_results),
+                already_added_count=already_added_count,
+                new_count=new_count,
+                high_priority_new_count=high_priority_new,
+                high_priority_new_df=self._last_high_priority_new
+            )
 
         except Exception as e:
             self.log(f"ERROR generating report: {e}")
             self.report_status_label.config(text="Error", fg=self.colors['error'])
             messagebox.showerror("Error", f"Failed to generate report:\n{e}")
+
+    def _show_synonym_apply_dialog(self, output_file, total_count, already_added_count,
+                                    new_count, high_priority_new_count, high_priority_new_df):
+        """Show dialog offering to apply synonyms directly from report results."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Apply Synonyms")
+        dialog.geometry("500x350")
+        dialog.configure(bg=self.colors['background'])
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (250)
+        y = (dialog.winfo_screenheight() // 2) - (175)
+        dialog.geometry(f"+{x}+{y}")
+
+        # Header
+        tk.Label(
+            dialog,
+            text="Synonym Report Generated",
+            font=('Segoe UI', 14, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(pady=(20, 10))
+
+        # Summary stats
+        stats_frame = tk.Frame(dialog, bg=self.colors['card'], relief='solid', bd=1)
+        stats_frame.pack(fill='x', padx=20, pady=10)
+
+        stats_text = (
+            f"Total proposed synonyms: {total_count}\n"
+            f"Already in synonyms.json: {already_added_count}\n"
+            f"NEW (not yet added): {new_count}\n"
+            f"HIGH priority (new): {high_priority_new_count}"
+        )
+        tk.Label(
+            stats_frame,
+            text=stats_text,
+            font=('Consolas', 10),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            justify='left'
+        ).pack(padx=15, pady=15)
+
+        # Info about what "Apply" does
+        if high_priority_new_count > 0:
+            # Count unique topics
+            topics_affected = high_priority_new_df['Topic'].nunique()
+            info_text = (
+                f"Clicking 'Apply All HIGH Priority' will add {high_priority_new_count} synonyms\n"
+                f"to {topics_affected} topics in synonyms.json for {self.selected_country.get()}."
+            )
+        else:
+            info_text = "No new HIGH priority synonyms to apply."
+
+        tk.Label(
+            dialog,
+            text=info_text,
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light'],
+            justify='center'
+        ).pack(pady=10)
+
+        # Buttons
+        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
+        btn_frame.pack(pady=20)
+
+        def apply_high_priority():
+            dialog.destroy()
+            self._apply_synonyms_batch(high_priority_new_df)
+
+        def open_in_excel():
+            dialog.destroy()
+            try:
+                os.startfile(output_file)
+            except Exception as e:
+                self.log(f"Could not open file: {e}")
+
+        # Apply button (green) - only enabled if there are new synonyms
+        apply_btn = tk.Button(
+            btn_frame,
+            text=f"Apply All HIGH Priority ({high_priority_new_count})",
+            command=apply_high_priority,
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['secondary'],
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2' if high_priority_new_count > 0 else 'arrow',
+            state='normal' if high_priority_new_count > 0 else 'disabled'
+        )
+        apply_btn.pack(side='left', padx=5)
+
+        # Review in Excel button (blue)
+        tk.Button(
+            btn_frame,
+            text="Review in Excel",
+            command=open_in_excel,
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        # Skip button (gray)
+        tk.Button(
+            btn_frame,
+            text="Skip",
+            command=dialog.destroy,
+            font=('Segoe UI', 10),
+            bg='#6b7280',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        # File path info
+        tk.Label(
+            dialog,
+            text=f"Report saved to: {os.path.basename(output_file)}",
+            font=('Segoe UI', 8),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        ).pack(pady=(10, 20))
+
+    def _show_keyword_rec_apply_dialog(self, output_file, total_recs, high_priority_count, apply_df):
+        """Show dialog offering to apply HIGH priority keyword recommendations as synonyms."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Keyword Recommendations")
+        dialog.geometry("520x400")
+        dialog.configure(bg=self.colors['background'])
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (260)
+        y = (dialog.winfo_screenheight() // 2) - (200)
+        dialog.geometry(f"+{x}+{y}")
+
+        # Header
+        tk.Label(
+            dialog,
+            text="Keyword Recommendations Generated",
+            font=('Segoe UI', 14, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(pady=(20, 10))
+
+        # Summary stats
+        stats_frame = tk.Frame(dialog, bg=self.colors['card'], relief='solid', bd=1)
+        stats_frame.pack(fill='x', padx=20, pady=10)
+
+        topics_affected = apply_df['Topic'].nunique() if len(apply_df) > 0 else 0
+        stats_text = (
+            f"Total unmatched keywords analyzed: {total_recs}\n"
+            f"HIGH priority (add as synonym): {high_priority_count}\n"
+            f"Topics affected: {topics_affected}"
+        )
+        tk.Label(
+            stats_frame,
+            text=stats_text,
+            font=('Consolas', 10),
+            bg=self.colors['card'],
+            fg=self.colors['text'],
+            justify='left'
+        ).pack(padx=15, pady=15)
+
+        # Info about what "Apply" does
+        info_text = (
+            f"Clicking 'Apply HIGH Priority Synonyms' will add {high_priority_count} synonyms\n"
+            f"to {topics_affected} topics in synonyms.json for {self.selected_country.get()}.\n\n"
+            f"The full recommendations are in the 'Keyword Recommendations'\n"
+            f"sheet of the output file."
+        )
+        tk.Label(
+            dialog,
+            text=info_text,
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light'],
+            justify='center'
+        ).pack(pady=10)
+
+        # Buttons
+        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
+        btn_frame.pack(pady=20)
+
+        def apply_high_priority():
+            dialog.destroy()
+            self._apply_synonyms_batch(apply_df)
+
+        def open_in_excel():
+            dialog.destroy()
+            try:
+                os.startfile(output_file)
+            except Exception as e:
+                self.log(f"Could not open file: {e}")
+
+        # Apply button (green)
+        tk.Button(
+            btn_frame,
+            text=f"Apply HIGH Priority Synonyms ({high_priority_count})",
+            command=apply_high_priority,
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['secondary'],
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        # Review in Excel button (blue)
+        tk.Button(
+            btn_frame,
+            text="Review in Excel",
+            command=open_in_excel,
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        # Skip button (gray)
+        tk.Button(
+            btn_frame,
+            text="Skip",
+            command=dialog.destroy,
+            font=('Segoe UI', 10),
+            bg='#6b7280',
+            fg='white',
+            relief='flat',
+            padx=15,
+            pady=8,
+            cursor='hand2'
+        ).pack(side='left', padx=5)
+
+        # File path info
+        tk.Label(
+            dialog,
+            text=f"Output: {os.path.basename(output_file)}",
+            font=('Segoe UI', 8),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        ).pack(pady=(10, 20))
+
+    def _apply_synonyms_batch(self, synonyms_df):
+        """
+        Apply synonyms from a DataFrame to the current country's synonyms.json.
+
+        Args:
+            synonyms_df: DataFrame with 'Topic' and 'Proposed_Synonym' columns
+        """
+        country_code = self.selected_country.get()
+
+        try:
+            # Load current synonyms
+            files = self.country_config.get_country_files(country_code)
+            synonym_file = files['synonyms']
+
+            with open(synonym_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            synonyms_dict = data.get('synonyms', {})
+            original_count = sum(len(v) for v in synonyms_dict.values() if isinstance(v, list))
+
+            # Group by topic
+            added_count = 0
+            skipped_count = 0
+            topics_modified = set()
+
+            for _, row in synonyms_df.iterrows():
+                topic = row['Topic']
+                proposed = row['Proposed_Synonym']
+
+                # Ensure topic exists
+                if topic not in synonyms_dict:
+                    synonyms_dict[topic] = []
+
+                # Check for duplicates (case-insensitive)
+                existing_lower = [s.lower() for s in synonyms_dict[topic]]
+                if proposed.lower() not in existing_lower:
+                    synonyms_dict[topic].append(proposed)
+                    added_count += 1
+                    topics_modified.add(topic)
+                else:
+                    skipped_count += 1
+
+            if added_count == 0:
+                messagebox.showinfo("No Changes", "All synonyms already exist. Nothing to add.")
+                return
+
+            # Update metadata
+            data['synonyms'] = synonyms_dict
+            data['last_updated'] = datetime.now().strftime('%Y-%m-%d')
+            data['total_mappings'] = len([k for k in synonyms_dict.keys() if not k.startswith('_')])
+
+            # Create backup before saving
+            import shutil
+            backup_file = synonym_file.replace('.json', '_backup.json')
+            if os.path.exists(synonym_file):
+                shutil.copy2(synonym_file, backup_file)
+
+            # Save with atomic write
+            import tempfile
+            dir_path = os.path.dirname(synonym_file)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', dir=dir_path,
+                                              delete=False, encoding='utf-8') as temp_file:
+                json.dump(data, temp_file, indent=2, ensure_ascii=False)
+                temp_path = temp_file.name
+
+            if os.path.exists(synonym_file):
+                os.remove(synonym_file)
+            shutil.move(temp_path, synonym_file)
+
+            new_count = sum(len(v) for v in synonyms_dict.values() if isinstance(v, list))
+
+            self.log(f"Batch applied {added_count} synonyms to {len(topics_modified)} topics")
+            self.log(f"  - Previous total synonyms: {original_count}")
+            self.log(f"  - New total synonyms: {new_count}")
+            self.log(f"  - Skipped (duplicates): {skipped_count}")
+
+            messagebox.showinfo(
+                "Synonyms Applied",
+                f"Successfully added {added_count} synonyms to {len(topics_modified)} topics!\n\n"
+                f"Skipped {skipped_count} duplicates.\n"
+                f"Backup saved to: {os.path.basename(backup_file)}\n\n"
+                f"Tip: Run taxonomy matching again to see improved results."
+            )
+
+            # Refresh synonym editor if it's loaded
+            if hasattr(self, 'current_synonyms') and self.current_synonyms:
+                self.load_synonyms_for_editor()
+
+        except Exception as e:
+            self.log(f"ERROR applying synonyms batch: {e}")
+            messagebox.showerror("Error", f"Failed to apply synonyms:\n{e}")
 
     def generate_quality_report(self):
         """Generate match quality report with similarity scores and rankings per URL."""
@@ -5513,6 +8279,663 @@ class TaxonomyMapperGUI:
 
         finally:
             self.gap_analysis_report_btn.config(state='normal')
+
+    # ==================== SYNONYM ASSISTANT METHODS ====================
+
+    def _browse_assistant_file(self, variable, title):
+        """Browse for a file for the Synonym Assistant."""
+        filename = filedialog.askopenfilename(
+            title=title,
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if filename:
+            variable.set(filename)
+
+    def _refresh_synonym_assistant(self):
+        """Refresh the synonym assistant with current filters."""
+        from collections import Counter, defaultdict
+        from rapidfuzz import fuzz
+
+        # Get file paths from assistant inputs
+        match_file = self.assistant_match_file.get()
+        semantic_file = self.assistant_semantic_file.get()
+        taxonomy_file = self.assistant_taxonomy_file.get()
+
+        # Validate taxonomy file (always required)
+        if not taxonomy_file or not os.path.exists(taxonomy_file):
+            messagebox.showerror("Error", "Please select a Taxonomy file")
+            return
+
+        # Determine mode based on which files are provided
+        has_match = match_file and os.path.exists(match_file)
+        has_semantic = semantic_file and os.path.exists(semantic_file)
+
+        if not has_match and not has_semantic:
+            messagebox.showerror("Error", "Please select either a Match File or Semantic File (or both)")
+            return
+
+        # Get filter values
+        priority_filter = self.assistant_priority.get()
+        try:
+            min_score = int(self.assistant_min_score.get())
+        except ValueError:
+            min_score = 85
+        new_only = self.assistant_new_only.get()
+        topic_scope = self.assistant_topic_scope.get()  # "Never-Matched Only" or "All Topics"
+        all_topics_mode = (topic_scope == "All Topics")
+
+        # Update mode label to show analyzing
+        if has_match and has_semantic:
+            mode = "Combined (Match + Semantic)"
+        elif has_match:
+            mode = "Gap Analysis (Match File)"
+        else:
+            mode = "Keyword Analysis (Semantic File)"
+
+        # Show processing indicator
+        scope_text = "All Topics" if all_topics_mode else "Never-Matched"
+        self.assistant_mode_label.config(text=f"Analyzing... ({mode}, {scope_text})", fg='#e67e22')
+        self.assistant_status_label.config(text="Processing...")
+        self.root.update()
+
+        self.log(f"Synonym Assistant: {mode}...")
+        self.log(f"  Filters: Priority={priority_filter}, Min Score={min_score}, Scope={topic_scope}")
+
+        try:
+            # Load existing synonyms
+            country_code = self.selected_country.get()
+            existing_synonyms = self.country_config.load_synonyms(country_code)
+
+            # Build reverse lookup: synonym (lowercase) -> set of topics (lowercase)
+            # This allows case-insensitive matching
+            synonym_to_topics_lower = defaultdict(set)
+            for topic, syns in existing_synonyms.items():
+                topic_lower = topic.lower()
+                synonym_to_topics_lower[topic_lower].add(topic_lower)  # Topic itself is a "synonym"
+                for syn in syns:
+                    synonym_to_topics_lower[syn.lower()].add(topic_lower)
+
+            self.log(f"  Loaded {len(existing_synonyms)} topics from synonyms.json")
+
+            # Load taxonomy topics
+            tax_df = pd.read_excel(taxonomy_file)
+            topic_cols = [c for c in tax_df.columns if c.startswith('Topic')]
+
+            all_taxonomy_topics = set()
+            topic_to_product = {}
+            for _, row in tax_df.iterrows():
+                product = row.get('Product', '')
+                for col in topic_cols:
+                    val = row.get(col)
+                    if pd.notna(val):
+                        topic = str(val).strip()
+                        all_taxonomy_topics.add(topic)
+                        topic_to_product[topic] = product
+
+            self.log(f"  Loaded {len(all_taxonomy_topics)} topics from taxonomy")
+
+            suggestions = []
+            keyword_counts = Counter()
+
+            # Common stopwords to filter out from text extraction
+            stopwords = {
+                'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+                'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 'have', 'has', 'had',
+                'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must',
+                'shall', 'can', 'need', 'dare', 'ought', 'used', 'it', 'its', 'this', 'that',
+                'these', 'those', 'i', 'you', 'he', 'she', 'we', 'they', 'what', 'which', 'who',
+                'whom', 'when', 'where', 'why', 'how', 'all', 'each', 'every', 'both', 'few',
+                'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+                'same', 'so', 'than', 'too', 'very', 'just', 'also', 'now', 'here', 'there',
+                'about', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
+                'between', 'under', 'again', 'further', 'then', 'once', 'any', 'our', 'your',
+                'their', 'his', 'her', 'my', 'out', 'up', 'down', 'off', 'over', 'www', 'com',
+                'http', 'https', 'html', 'php', 'asp', 'aspx', 'page', 'pages', 'uk', 'en'
+            }
+
+            def extract_text_keywords(text, min_len=3):
+                """Extract meaningful keywords from text, filtering stopwords."""
+                if not text or pd.isna(text):
+                    return []
+                text = str(text).lower()
+                # Replace common separators with spaces
+                for sep in ['-', '_', '/', '|', ':', ',', '.', '(', ')', '[', ']', '"', "'"]:
+                    text = text.replace(sep, ' ')
+                words = text.split()
+                # Filter: min length, not stopword, not numeric
+                return [w.strip() for w in words if len(w) >= min_len and w not in stopwords and not w.isdigit()]
+
+            def extract_phrases(text, max_words=3):
+                """Extract 2-3 word phrases that might be compound terms."""
+                if not text or pd.isna(text):
+                    return []
+                text = str(text).lower()
+                # Clean but preserve spaces
+                for sep in ['-', '_', '/', '|', ':', ',', '.', '(', ')', '[', ']', '"', "'"]:
+                    text = text.replace(sep, ' ')
+                words = [w.strip() for w in text.split() if w.strip()]
+                phrases = []
+                for i in range(len(words) - 1):
+                    w1, w2 = words[i], words[i+1]
+                    # 2-word phrases: neither word should be a stopword
+                    if (len(w1) >= 3 and len(w2) >= 3 and
+                        w1 not in stopwords and w2 not in stopwords):
+                        phrase2 = f"{w1} {w2}"
+                        if len(phrase2) >= 5:
+                            phrases.append(phrase2)
+                    # 3-word phrases: first and last must not be stopwords
+                    if i < len(words) - 2:
+                        w3 = words[i+2]
+                        if (len(w1) >= 3 and len(w3) >= 3 and
+                            w1 not in stopwords and w3 not in stopwords):
+                            phrase3 = f"{w1} {w2} {w3}"
+                            if len(phrase3) >= 8:
+                                phrases.append(phrase3)
+                return phrases
+
+            # === MODE 1: Gap Analysis from Match File ===
+            if has_match:
+                df_match = pd.read_excel(match_file)
+                self.log(f"  Loaded {len(df_match)} rows from match file")
+
+                # Get matched topics
+                match_topic_cols = [c for c in df_match.columns if c.startswith('Topic_') and c != 'Topic_Frequency_Penalty']
+                matched_topics = set()
+                for _, row in df_match.iterrows():
+                    for col in match_topic_cols:
+                        val = row[col]
+                        if pd.notna(val) and str(val).strip():
+                            matched_topics.add(str(val).strip().lower())
+
+                # Determine which topics to analyze based on scope
+                if all_topics_mode:
+                    # All Topics mode: analyze ALL taxonomy topics
+                    topics_to_analyze = list(all_taxonomy_topics)
+                    self.log(f"  Analyzing ALL {len(topics_to_analyze)} taxonomy topics (All Topics mode)")
+                else:
+                    # Never-Matched Only mode: only analyze topics that haven't matched
+                    topics_to_analyze = []
+                    for topic in all_taxonomy_topics:
+                        if topic.lower() not in matched_topics:
+                            topics_to_analyze.append(topic)
+                    self.log(f"  Found {len(topics_to_analyze)} never-matched topics")
+
+                # For never-matched topics, find keywords from match file that could be synonyms
+                # Extract keywords from multiple sources: URL paths, Keywords, Title, Description, Summary
+                url_keywords = Counter()
+
+                # Source 1: URL paths
+                if 'URL' in df_match.columns:
+                    for url in df_match['URL'].dropna():
+                        from urllib.parse import urlparse, unquote
+                        try:
+                            path = unquote(urlparse(str(url)).path)
+                            words = extract_text_keywords(path)
+                            url_keywords.update(words)
+                        except:
+                            pass
+
+                # Source 2: Keyword columns
+                for i in range(1, 16):
+                    col = f'Keyword {i}'
+                    if col in df_match.columns:
+                        for kw in df_match[col].dropna():
+                            kw_clean = str(kw).lower().strip()
+                            if kw_clean and len(kw_clean) >= 3:
+                                url_keywords[kw_clean] += 1
+
+                # Source 3: Title column - extract single words and phrases
+                title_count = 0
+                if 'Title' in df_match.columns:
+                    for title in df_match['Title'].dropna():
+                        words = extract_text_keywords(title)
+                        url_keywords.update(words)
+                        # Also extract 2-3 word phrases from titles
+                        phrases = extract_phrases(title)
+                        url_keywords.update(phrases)
+                        title_count += 1
+                    if title_count > 0:
+                        self.log(f"    - Extracted keywords from {title_count} Title entries")
+
+                # Source 4: Description column - extract words and phrases
+                desc_count = 0
+                for desc_col in ['Description', 'Meta Description', 'Meta_Description']:
+                    if desc_col in df_match.columns:
+                        for desc in df_match[desc_col].dropna():
+                            words = extract_text_keywords(desc)
+                            url_keywords.update(words)
+                            phrases = extract_phrases(desc)
+                            url_keywords.update(phrases)
+                            desc_count += 1
+                        break  # Use first found description column
+                if desc_count > 0:
+                    self.log(f"    - Extracted keywords from {desc_count} Description entries")
+
+                # Source 5: Summary column
+                summary_count = 0
+                if 'Summary' in df_match.columns:
+                    for summary in df_match['Summary'].dropna():
+                        words = extract_text_keywords(summary)
+                        url_keywords.update(words)
+                        phrases = extract_phrases(summary)
+                        url_keywords.update(phrases)
+                        summary_count += 1
+                    if summary_count > 0:
+                        self.log(f"    - Extracted keywords from {summary_count} Summary entries")
+
+                keyword_counts.update(url_keywords)
+                self.log(f"  Extracted {len(url_keywords)} unique keywords/phrases from match file")
+
+                # Find suggestions for topics
+                # Take top 1000 keywords (no minimum frequency for now)
+                top_keywords = [kw for kw, count in url_keywords.most_common(1000)]
+                scope_desc = "all" if all_topics_mode else "never-matched"
+                self.log(f"  Analyzing {len(top_keywords)} keywords against {len(topics_to_analyze)} {scope_desc} topics")
+
+                # Counters for debugging
+                match_above_score = 0
+                match_filtered_priority = 0
+                match_filtered_existing = 0
+
+                for topic in topics_to_analyze:
+                    topic_lower = topic.lower()
+
+                    for kw in top_keywords:
+                        score = fuzz.ratio(kw, topic_lower)
+                        if score < min_score:
+                            continue
+
+                        match_above_score += 1
+                        freq = url_keywords[kw]
+
+                        # Determine priority
+                        if score >= 85 and freq >= 10:
+                            priority = 'HIGH'
+                        elif score >= 75 and freq >= 5:
+                            priority = 'MEDIUM'
+                        else:
+                            priority = 'LOW'
+
+                        if priority_filter != 'ALL' and priority != priority_filter:
+                            match_filtered_priority += 1
+                            continue
+
+                        # Case-insensitive check if keyword is already a synonym for this topic
+                        # Always filter these out - no point suggesting what's already there
+                        already_added = topic.lower() in synonym_to_topics_lower.get(kw.lower(), set())
+                        if already_added:
+                            match_filtered_existing += 1
+                            continue
+
+                        suggestions.append({
+                            'topic': topic,
+                            'synonym': kw,
+                            'score': score,
+                            'freq': freq,
+                            'priority': priority,
+                            'already_added': False,
+                            'source': 'match'
+                        })
+
+                self.log(f"  Match file results: {match_above_score} above score, {match_filtered_priority} filtered by priority, {match_filtered_existing} filtered as existing")
+
+            # === MODE 2: Keyword Analysis from Semantic File ===
+            if has_semantic:
+                sem_df = pd.read_excel(semantic_file)
+                self.log(f"  Loaded {len(sem_df)} rows from semantic file")
+
+                sem_keyword_counts = Counter()
+
+                # Source 1: Keyword columns
+                for i in range(1, 16):
+                    col = f'Keyword {i}'
+                    if col in sem_df.columns:
+                        for kw in sem_df[col].dropna():
+                            kw_clean = str(kw).lower().strip()
+                            if kw_clean and len(kw_clean) >= 3:
+                                sem_keyword_counts[kw_clean] += 1
+
+                # Source 2: Title column
+                title_count = 0
+                if 'Title' in sem_df.columns:
+                    for title in sem_df['Title'].dropna():
+                        words = extract_text_keywords(title)
+                        sem_keyword_counts.update(words)
+                        phrases = extract_phrases(title)
+                        sem_keyword_counts.update(phrases)
+                        title_count += 1
+                    if title_count > 0:
+                        self.log(f"    - Extracted keywords from {title_count} Title entries")
+
+                # Source 3: Meta Description column
+                desc_count = 0
+                for desc_col in ['Meta Description', 'Meta_Description', 'Description']:
+                    if desc_col in sem_df.columns:
+                        for desc in sem_df[desc_col].dropna():
+                            words = extract_text_keywords(desc)
+                            sem_keyword_counts.update(words)
+                            phrases = extract_phrases(desc)
+                            sem_keyword_counts.update(phrases)
+                            desc_count += 1
+                        break
+                if desc_count > 0:
+                    self.log(f"    - Extracted keywords from {desc_count} Description entries")
+
+                # Source 4: Summary column
+                summary_count = 0
+                if 'Summary' in sem_df.columns:
+                    for summary in sem_df['Summary'].dropna():
+                        words = extract_text_keywords(summary)
+                        sem_keyword_counts.update(words)
+                        phrases = extract_phrases(summary)
+                        sem_keyword_counts.update(phrases)
+                        summary_count += 1
+                    if summary_count > 0:
+                        self.log(f"    - Extracted keywords from {summary_count} Summary entries")
+
+                keyword_counts.update(sem_keyword_counts)
+                self.log(f"  Extracted {len(sem_keyword_counts)} unique keywords/phrases from semantic file")
+
+                # Determine which topics to analyze for semantic mode
+                # If match file was provided, reuse topics_to_analyze from Mode 1
+                # Otherwise, for semantic-only mode, use all taxonomy topics
+                if has_match:
+                    sem_topics_to_analyze = topics_to_analyze
+                else:
+                    # Semantic-only mode: always use all topics (no match data for filtering)
+                    sem_topics_to_analyze = list(all_taxonomy_topics)
+
+                top_keywords = [kw for kw, count in sem_keyword_counts.most_common(1000)]
+                scope_desc = "all" if (not has_match or all_topics_mode) else "never-matched"
+                self.log(f"  Analyzing {len(top_keywords)} keywords against {len(sem_topics_to_analyze)} {scope_desc} taxonomy topics")
+
+                # Counters for debugging
+                sem_above_score = 0
+                sem_filtered_priority = 0
+                sem_filtered_existing = 0
+
+                for topic in sorted(sem_topics_to_analyze):
+                    topic_lower = topic.lower()
+
+                    for kw in top_keywords:
+                        score = fuzz.ratio(kw, topic_lower)
+                        if score < min_score:
+                            continue
+
+                        sem_above_score += 1
+                        freq = sem_keyword_counts[kw]
+
+                        if score >= 85 and freq >= 50:
+                            priority = 'HIGH'
+                        elif score >= 75:
+                            priority = 'MEDIUM'
+                        else:
+                            priority = 'LOW'
+
+                        if priority_filter != 'ALL' and priority != priority_filter:
+                            sem_filtered_priority += 1
+                            continue
+
+                        # Case-insensitive check if keyword is already a synonym for this topic
+                        # Always filter these out - no point suggesting what's already there
+                        already_added = topic.lower() in synonym_to_topics_lower.get(kw.lower(), set())
+                        if already_added:
+                            sem_filtered_existing += 1
+                            continue
+
+                        # Check if this suggestion already exists from match analysis
+                        existing = False
+                        for s in suggestions:
+                            if s['topic'] == topic and s['synonym'] == kw:
+                                existing = True
+                                # Update with higher freq if semantic has more
+                                if freq > s['freq']:
+                                    s['freq'] = freq
+                                    s['source'] = 'both'
+                                break
+
+                        if not existing:
+                            suggestions.append({
+                                'topic': topic,
+                                'synonym': kw,
+                                'score': score,
+                                'freq': freq,
+                                'priority': priority,
+                                'already_added': False,
+                                'source': 'semantic'
+                            })
+
+                self.log(f"  Semantic file results: {sem_above_score} above score, {sem_filtered_priority} filtered by priority, {sem_filtered_existing} filtered as existing")
+
+            # Sort by priority, then score, then freq
+            priority_order = {'HIGH': 0, 'MEDIUM': 1, 'LOW': 2}
+            suggestions.sort(key=lambda x: (priority_order.get(x['priority'], 3), -x['score'], -x['freq']))
+
+            # Store suggestions
+            self._assistant_suggestions = suggestions
+
+            # Clear and populate treeview
+            self.assistant_tree.delete(*self.assistant_tree.get_children())
+            self._assistant_selected_items.clear()
+
+            for i, item in enumerate(suggestions):
+                values = (
+                    '',
+                    item['topic'],
+                    item['synonym'],
+                    f"{item['score']}%",
+                    item['freq'],
+                    item['priority']
+                )
+                self.assistant_tree.insert('', 'end', iid=str(i), values=values, tags=(item['priority'],))
+
+            self._update_assistant_status()
+
+            # Update mode label to show complete
+            scope_label = "All Topics" if all_topics_mode else "Never-Matched Only"
+            self.assistant_mode_label.config(text=f"Mode: {mode} | Scope: {scope_label}", fg=self.colors['primary'])
+
+            # Log summary
+            self.log(f"Synonym Assistant: Found {len(suggestions)} suggestions")
+            if len(suggestions) == 0:
+                self.log(f"  No suggestions found. Try:")
+                self.log(f"    - Lowering Min Score (current: {min_score})")
+                self.log(f"    - Setting Priority to ALL")
+                if not all_topics_mode:
+                    self.log(f"    - Changing Topic Scope to 'All Topics'")
+
+        except Exception as e:
+            self.log(f"ERROR in Synonym Assistant: {e}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.assistant_mode_label.config(text="Error - check Console", fg=self.colors['error'])
+            self.assistant_status_label.config(text="Error")
+            messagebox.showerror("Error", f"Failed to analyze synonyms:\n{e}")
+
+    def _on_assistant_tree_click(self, event):
+        """Handle click on treeview row to toggle selection."""
+        item = self.assistant_tree.identify_row(event.y)
+        if not item:
+            return
+
+        # Toggle selection
+        if item in self._assistant_selected_items:
+            self._assistant_selected_items.remove(item)
+            # Update visual indicator
+            values = list(self.assistant_tree.item(item)['values'])
+            values[0] = ''
+            self.assistant_tree.item(item, values=values)
+        else:
+            self._assistant_selected_items.add(item)
+            values = list(self.assistant_tree.item(item)['values'])
+            values[0] = '✓'
+            self.assistant_tree.item(item, values=values)
+
+        self._update_assistant_status()
+
+    def _assistant_select_all(self):
+        """Select all items in treeview."""
+        for item in self.assistant_tree.get_children():
+            self._assistant_selected_items.add(item)
+            values = list(self.assistant_tree.item(item)['values'])
+            values[0] = '✓'
+            self.assistant_tree.item(item, values=values)
+        self._update_assistant_status()
+
+    def _assistant_deselect_all(self):
+        """Deselect all items in treeview."""
+        for item in self.assistant_tree.get_children():
+            self._assistant_selected_items.discard(item)
+            values = list(self.assistant_tree.item(item)['values'])
+            values[0] = ''
+            self.assistant_tree.item(item, values=values)
+        self._update_assistant_status()
+
+    def _update_assistant_status(self):
+        """Update status label and button states."""
+        count = len(self._assistant_selected_items)
+        total = len(self.assistant_tree.get_children())
+
+        self.assistant_status_label.config(text=f"{count} of {total} selected")
+
+        if count > 0:
+            self.assistant_apply_btn.config(state='normal')
+            self.assistant_preview_btn.config(state='normal')
+        else:
+            self.assistant_apply_btn.config(state='disabled')
+            self.assistant_preview_btn.config(state='disabled')
+
+    def _preview_selected_synonyms(self):
+        """Show preview of selected synonyms to be applied."""
+        if not self._assistant_selected_items:
+            messagebox.showinfo("No Selection", "Please select some synonyms first")
+            return
+
+        # Group by topic
+        topic_synonyms = {}
+        for item_id in self._assistant_selected_items:
+            idx = int(item_id)
+            if idx < len(self._assistant_suggestions):
+                item = self._assistant_suggestions[idx]
+                topic = item['topic']
+                if topic not in topic_synonyms:
+                    topic_synonyms[topic] = []
+                topic_synonyms[topic].append(item['synonym'])
+
+        # Create preview dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Preview Changes")
+        dialog.geometry("500x400")
+        dialog.configure(bg=self.colors['background'])
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (250)
+        y = (dialog.winfo_screenheight() // 2) - (200)
+        dialog.geometry(f"+{x}+{y}")
+
+        tk.Label(
+            dialog,
+            text="Preview: Synonyms to Add",
+            font=('Segoe UI', 12, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(pady=(15, 10))
+
+        tk.Label(
+            dialog,
+            text=f"{len(self._assistant_selected_items)} synonyms for {len(topic_synonyms)} topics",
+            font=('Segoe UI', 9),
+            bg=self.colors['background'],
+            fg=self.colors['text_light']
+        ).pack(pady=(0, 10))
+
+        # Scrollable text area
+        text_frame = tk.Frame(dialog, bg=self.colors['background'])
+        text_frame.pack(fill='both', expand=True, padx=20, pady=10)
+
+        scrollbar = tk.Scrollbar(text_frame)
+        scrollbar.pack(side='right', fill='y')
+
+        text_area = tk.Text(
+            text_frame,
+            font=('Consolas', 10),
+            wrap='word',
+            yscrollcommand=scrollbar.set,
+            bg='#fafafa',
+            fg=self.colors['text'],
+            relief='solid',
+            bd=1,
+            state='normal'
+        )
+        text_area.pack(side='left', fill='both', expand=True)
+        scrollbar.config(command=text_area.yview)
+
+        # Populate preview
+        for topic in sorted(topic_synonyms.keys()):
+            text_area.insert('end', f"\n{topic}:\n", 'topic')
+            for syn in topic_synonyms[topic]:
+                text_area.insert('end', f"  + {syn}\n", 'synonym')
+
+        text_area.tag_configure('topic', font=('Consolas', 10, 'bold'), foreground=self.colors['primary'])
+        text_area.tag_configure('synonym', foreground=self.colors['secondary'])
+        text_area.config(state='disabled')
+
+        # Close button
+        tk.Button(
+            dialog,
+            text="Close",
+            command=dialog.destroy,
+            font=('Segoe UI', 10),
+            bg=self.colors['primary'],
+            fg='white',
+            relief='flat',
+            padx=20,
+            pady=5,
+            cursor='hand2'
+        ).pack(pady=15)
+
+    def _apply_selected_synonyms(self):
+        """Apply selected synonyms to synonyms.json."""
+        if not self._assistant_selected_items:
+            messagebox.showinfo("No Selection", "Please select some synonyms first")
+            return
+
+        # Build DataFrame from selected items
+        rows = []
+        for item_id in self._assistant_selected_items:
+            idx = int(item_id)
+            if idx < len(self._assistant_suggestions):
+                item = self._assistant_suggestions[idx]
+                rows.append({
+                    'Topic': item['topic'],
+                    'Proposed_Synonym': item['synonym']
+                })
+
+        if not rows:
+            return
+
+        df = pd.DataFrame(rows)
+
+        # Confirm
+        topic_count = df['Topic'].nunique()
+        if not messagebox.askyesno(
+            "Confirm Apply",
+            f"Apply {len(rows)} synonyms to {topic_count} topics?\n\n"
+            f"This will update synonyms.json for {self.selected_country.get()}."
+        ):
+            return
+
+        # Use the existing batch apply method
+        self._apply_synonyms_batch(df)
+
+        # Clear selection after apply
+        self._assistant_deselect_all()
+
+        # Refresh the list to show updated state
+        self._refresh_synonym_assistant()
 
 
 def main():
