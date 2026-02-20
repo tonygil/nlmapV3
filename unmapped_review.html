@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unmapped URL Triage — NL Taxonomy Mapper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* ═══════════════════════════════════════════════════
+   TOKENS — LIGHT MODE
+═══════════════════════════════════════════════════ */
+:root {
+  --bg:         #f0f4f8;
+  --bg-raised:  #ffffff;
+  --bg-surface: #f6f8fa;
+  --bg-hover:   rgba(0,0,0,0.025);
+
+  --border:     rgba(0,0,0,0.07);
+  --border-md:  rgba(0,0,0,0.11);
+  --border-lg:  rgba(0,0,0,0.18);
+
+  --text:       #111827;
+  --text-2:     #5a6a7e;
+  --text-3:     #9daab8;
+
+  --remove:     #dc2626;
+  --product:    #b45309;
+  --synonym:    #047857;
+  --noise:      #6d28d9;
+  --skip:       #9daab8;
+  --suggest:    #1d4ed8;
+
+  --remove-bg:  #fef2f2;
+  --product-bg: #fffbeb;
+  --synonym-bg: #ecfdf5;
+  --noise-bg:   #f5f3ff;
+  --skip-bg:    #f9fafb;
+  --suggest-bg: #eff6ff;
+
+  --font:  'Plus Jakarta Sans', sans-serif;
+  --mono:  'JetBrains Mono', monospace;
+  --r:     5px;
+  --r-lg:  10px;
+}
+
+/* ═══════════════════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════════════════════════════════════════════
+   LOADING OVERLAY
+═══════════════════════════════════════════════════ */
+#overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(240,244,248,0.90);
+  backdrop-filter: blur(10px);
+  align-items: center; justify-content: center;
+  z-index: 100; flex-direction: column; gap: 1rem;
+}
+#overlay.on { display: flex; }
+.spin {
+  width: 28px; height: 28px;
+  border: 2px solid var(--border-lg);
+  border-top-color: var(--suggest);
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#overlayMsg { color: var(--text-2); font-size: 0.82rem; font-weight: 500; }
+
+/* ═══════════════════════════════════════════════════
+   LANDING
+═══════════════════════════════════════════════════ */
+#landing {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: 100vh; padding: 2rem;
+  background: var(--bg);
+}
+
+.land-eyebrow {
+  display: flex; align-items: center; gap: 0.6rem;
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 1.5rem;
+}
+.land-eyebrow-line {
+  width: 28px; height: 1px; background: var(--border-lg);
+}
+.land-eyebrow-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--suggest); opacity: 0.6;
+}
+
+.land-title {
+  font-size: 2.4rem; font-weight: 700; letter-spacing: -0.04em;
+  color: var(--text); text-align: center;
+  margin-bottom: 0.6rem; line-height: 1.1;
+}
+.land-title span { color: var(--suggest); }
+
+.land-sub {
+  color: var(--text-2); font-size: 0.9rem; text-align: center;
+  margin-bottom: 2.5rem; max-width: 400px; line-height: 1.65;
+}
+
+.dropzone {
+  width: 100%; max-width: 480px;
+  background: var(--bg-raised);
+  border: 1.5px dashed rgba(0,0,0,0.14);
+  border-radius: var(--r-lg);
+  padding: 2.25rem 2rem;
+  cursor: pointer; text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.dropzone:hover, .dropzone.over {
+  border-color: var(--suggest);
+  background: var(--suggest-bg);
+  box-shadow: 0 2px 12px rgba(29,78,216,0.08);
+}
+.dz-icon { font-size: 2rem; margin-bottom: 0.65rem; opacity: 0.55; line-height: 1; }
+.dz-title { font-weight: 600; font-size: 0.9rem; color: var(--text); }
+.dz-sub   { color: var(--text-2); font-size: 0.77rem; margin-top: 0.3rem; }
+.dz-sub em { font-style: normal; color: var(--text); font-weight: 500; }
+
+.browse-btn {
+  display: inline-block; margin-top: 1.2rem;
+  padding: 0.42rem 1.2rem;
+  background: var(--suggest); color: #ffffff;
+  border-radius: var(--r); font-weight: 700;
+  font-size: 0.78rem; cursor: pointer;
+  transition: opacity 0.15s; letter-spacing: 0.01em;
+  box-shadow: 0 1px 4px rgba(29,78,216,0.25);
+}
+.browse-btn:hover { opacity: 0.88; }
+#fileInput { display: none; }
+
+#loadStatus {
+  margin-top: 1rem; color: var(--text-2);
+  font-size: 0.8rem; min-height: 1.4em;
+}
+
+.land-tags {
+  display: flex; flex-wrap: wrap; gap: 0.5rem;
+  justify-content: center; margin-top: 2.5rem;
+}
+.land-tag {
+  background: var(--bg-raised); border: 1px solid var(--border-md);
+  border-radius: 4px; padding: 0.22rem 0.65rem;
+  font-size: 0.72rem; color: var(--text-2);
+  font-family: var(--mono);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+/* ═══════════════════════════════════════════════════
+   APP SHELL
+═══════════════════════════════════════════════════ */
+#app { display: none; min-height: 100vh; flex-direction: column; }
+
+/* ── HEADER */
+.app-hdr {
+  height: 50px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  padding: 0 1.5rem;
+  display: flex; align-items: center; gap: 0.85rem;
+  position: sticky; top: 0; z-index: 40; flex-shrink: 0;
+}
+.hdr-logo {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.8rem; font-weight: 700; color: var(--text);
+  white-space: nowrap; flex-shrink: 0;
+}
+.hdr-logo-mark {
+  width: 22px; height: 22px; border-radius: 5px;
+  background: var(--suggest-bg); border: 1px solid rgba(29,78,216,0.2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; color: var(--suggest); flex-shrink: 0;
+}
+.hdr-divider {
+  width: 1px; height: 18px; background: var(--border-md); flex-shrink: 0;
+}
+.hdr-file {
+  font-family: var(--mono); font-size: 0.72rem;
+  color: var(--text-2); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex: 1; min-width: 0;
+}
+.hdr-spacer { flex: 1; }
+.country-chip {
+  background: var(--suggest-bg); color: var(--suggest);
+  border: 1px solid rgba(29,78,216,0.2);
+  border-radius: 4px; padding: 0.16rem 0.7rem;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+  white-space: nowrap; flex-shrink: 0;
+}
+.new-file-btn {
+  background: transparent; border: 1px solid var(--border-md);
+  color: var(--text-2); border-radius: var(--r);
+  padding: 0.26rem 0.7rem; font-size: 0.74rem;
+  font-family: var(--font); cursor: pointer;
+  transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
+}
+.new-file-btn:hover { color: var(--text); border-color: var(--border-lg); background: var(--bg-surface); }
+
+/* ── FILTER TABS */
+.filter-row {
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  padding: 0 1.5rem;
+  display: flex; align-items: stretch; gap: 0;
+  flex-shrink: 0; overflow-x: auto;
+  position: sticky; top: 50px; z-index: 35;
+}
+.filter-tab {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0 0.9rem; height: 42px;
+  font-size: 0.77rem; font-weight: 500; font-family: var(--font);
+  color: var(--text-2); border-bottom: 2px solid transparent;
+  cursor: pointer; transition: all 0.15s;
+  white-space: nowrap; background: none;
+  border-top: none; border-left: none; border-right: none;
+}
+.filter-tab:hover { color: var(--text); }
+.filter-tab.active { color: var(--suggest); border-bottom-color: var(--suggest); font-weight: 600; }
+.tab-cnt {
+  background: var(--bg-surface); border: 1px solid var(--border-md);
+  padding: 0.04rem 0.42rem; border-radius: 10px;
+  font-size: 0.67rem; font-weight: 600; font-family: var(--mono);
+  color: var(--text-3); min-width: 22px; text-align: center;
+}
+.filter-tab.active .tab-cnt { color: var(--suggest); border-color: rgba(29,78,216,0.2); background: var(--suggest-bg); }
+.filter-spacer { flex: 1; }
+.prog-display {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0 0.5rem;
+}
+#progText {
+  font-size: 0.72rem; color: var(--text-3); font-family: var(--mono);
+  white-space: nowrap;
+}
+.prog-bar-wrap {
+  width: 80px; height: 3px; background: var(--border-md);
+  border-radius: 2px; overflow: hidden;
+}
+.prog-bar-fill {
+  height: 100%; background: var(--suggest);
+  border-radius: 2px; transition: width 0.3s ease;
+  width: 0%;
+}
+
+/* ── BULK BAR */
+.bulk-bar {
+  display: none; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  background: #fffdf4;
+  border-bottom: 1px solid rgba(180,83,9,0.12);
+  padding: 0.48rem 1.5rem; flex-shrink: 0;
+}
+.bulk-bar.on { display: flex; }
+.bulk-lbl {
+  font-size: 0.72rem; font-weight: 600; color: var(--product);
+  letter-spacing: 0.04em; white-space: nowrap;
+}
+.bulk-btn {
+  padding: 0.25rem 0.7rem; border-radius: var(--r); font-size: 0.72rem;
+  font-weight: 500; font-family: var(--font); cursor: pointer;
+  background: transparent; transition: all 0.12s; border: 1px solid;
+}
+.bulk-btn.r { color: var(--remove);  border-color: rgba(220,38,38,0.3); }
+.bulk-btn.r:hover { background: var(--remove-bg); }
+.bulk-btn.n { color: var(--noise);   border-color: rgba(109,40,217,0.3); }
+.bulk-btn.n:hover { background: var(--noise-bg); }
+.bulk-btn.s { color: var(--text-3);  border-color: var(--border-md); }
+.bulk-btn.s:hover { background: var(--bg-surface); color: var(--text-2); }
+.bulk-btn.p { color: var(--product); border-color: rgba(180,83,9,0.3); }
+.bulk-btn.p:hover { background: var(--product-bg); }
+.bulk-prod-wrap { display: flex; gap: 0.4rem; align-items: center; }
+.bulk-prod-input {
+  background: var(--bg-surface); border: 1px solid var(--border-md);
+  border-radius: var(--r); color: var(--text);
+  padding: 0.25rem 0.6rem; font-size: 0.74rem;
+  font-family: var(--font); width: 195px;
+}
+.bulk-prod-input:focus { outline: none; border-color: var(--product); }
+
+/* ── TABLE WRAPPER */
+.tbl-wrap { padding: 0 1.5rem 5.5rem; overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; min-width: 860px; }
+
+thead th {
+  text-align: left; padding: 0.6rem 0.9rem;
+  font-size: 0.66rem; font-weight: 700; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--text-3);
+  border-bottom: 1px solid var(--border-md);
+  background: var(--bg); position: sticky;
+  top: 0; z-index: 8; white-space: nowrap;
+}
+
+tbody tr {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  transition: background 0.1s; border-left: 2px solid transparent;
+}
+tbody tr:hover { background: #f7f9fc; }
+tbody tr.da-remove      { border-left-color: var(--remove);  background: #fff5f5; }
+tbody tr.da-fix_product { border-left-color: var(--product); background: #fffdf0; }
+tbody tr.da-synonym     { border-left-color: var(--synonym); background: #f0fdf9; }
+tbody tr.da-noise       { border-left-color: var(--noise);   background: #faf5ff; }
+tbody tr.da-skip        { border-left-color: var(--skip);    opacity: 0.45; }
+
+td { padding: 0.75rem 0.9rem; vertical-align: top; }
+
+/* URL cell */
+.url-cell { width: 200px; min-width: 170px; max-width: 200px; }
+.url-link {
+  color: var(--suggest); text-decoration: none;
+  font-family: var(--mono); font-size: 0.7rem;
+  word-break: break-all; line-height: 1.45; display: block;
+}
+.url-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.title-txt {
+  color: var(--text-2); font-size: 0.72rem; margin-top: 0.28rem;
+  line-height: 1.4; font-style: italic;
+}
+
+/* Reason cell */
+.reason-cell { width: 135px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 0.22rem;
+  padding: 0.15rem 0.5rem; border-radius: 4px;
+  font-size: 0.67rem; font-weight: 600; white-space: nowrap; border: 1px solid;
+}
+.b-miss    { background: var(--remove-bg);  color: var(--remove);  border-color: rgba(220,38,38,0.22); }
+.b-product { background: var(--product-bg); color: var(--product); border-color: rgba(180,83,9,0.22); }
+.b-noise   { background: var(--noise-bg);   color: var(--noise);   border-color: rgba(109,40,217,0.22); }
+.b-nokw    { background: var(--skip-bg);    color: var(--text-2);  border-color: var(--border-md); }
+.reason-detail {
+  font-size: 0.67rem; color: var(--text-3);
+  margin-top: 0.28rem; max-width: 125px; line-height: 1.35;
+}
+
+/* Product cell */
+.prod-cell { width: 150px; min-width: 130px; }
+.prod-current { font-size: 0.78rem; color: var(--text-2); }
+.prod-suggest-chip {
+  display: inline-flex; align-items: center; gap: 0.22rem;
+  margin-top: 0.28rem; padding: 0.12rem 0.48rem;
+  background: var(--suggest-bg); border: 1px solid rgba(29,78,216,0.22);
+  border-radius: 4px; font-size: 0.68rem; color: var(--suggest);
+  font-family: var(--mono); line-height: 1.3; max-width: 140px;
+}
+/* Override inline styles from JS suggestion code */
+div[style*="60a5fa"] {
+  display: inline-flex !important; align-items: center;
+  margin-top: 0.28rem !important; padding: 0.12rem 0.48rem;
+  background: var(--suggest-bg); border: 1px solid rgba(29,78,216,0.22);
+  border-radius: 4px; font-size: 0.68rem !important;
+  color: var(--suggest) !important; font-family: var(--mono);
+  line-height: 1.3; max-width: 140px;
+}
+.prod-new {
+  font-size: 0.72rem; color: var(--product); margin-top: 0.22rem;
+  display: flex; align-items: center; gap: 0.18rem;
+}
+
+/* Keywords cell */
+.kw-cell { max-width: 280px; }
+.kw-pill {
+  display: inline-block;
+  background: var(--bg-surface); border: 1px solid var(--border-md);
+  border-radius: 3px; padding: 0.09rem 0.4rem;
+  font-family: var(--mono); font-size: 0.67rem;
+  color: var(--text-2); margin: 0.07rem 0.05rem 0 0;
+  line-height: 1.4;
+}
+.kw-pill.nkw {
+  background: var(--noise-bg); border-color: rgba(167,139,250,0.2);
+  color: var(--noise);
+}
+
+/* Actions cell */
+.act-cell { min-width: 285px; }
+.action-btns { display: flex; gap: 0.28rem; flex-wrap: wrap; margin-bottom: 0; }
+.abtn {
+  padding: 0.2rem 0.52rem; border-radius: 4px; border: 1px solid;
+  font-size: 0.69rem; font-weight: 500; font-family: var(--font);
+  cursor: pointer; background: transparent;
+  transition: all 0.12s; white-space: nowrap;
+}
+.abtn.r { color: var(--remove);  border-color: rgba(220,38,38,0.3); }
+.abtn.r:hover, .abtn.r.on { background: var(--remove-bg);  border-color: rgba(220,38,38,0.55); }
+.abtn.p { color: var(--product); border-color: rgba(180,83,9,0.3); }
+.abtn.p:hover, .abtn.p.on { background: var(--product-bg); border-color: rgba(180,83,9,0.55); }
+.abtn.y { color: var(--synonym); border-color: rgba(4,120,87,0.3); }
+.abtn.y:hover, .abtn.y.on { background: var(--synonym-bg); border-color: rgba(4,120,87,0.55); }
+.abtn.n { color: var(--noise);   border-color: rgba(109,40,217,0.3); }
+.abtn.n:hover, .abtn.n.on { background: var(--noise-bg);   border-color: rgba(109,40,217,0.55); }
+.abtn.s { color: var(--text-3);  border-color: var(--border); }
+.abtn.s:hover, .abtn.s.on { background: var(--bg-surface); color: var(--text-2); border-color: var(--border-md); }
+
+/* Inline panels */
+.panel {
+  display: none; background: var(--bg-raised);
+  border: 1px solid var(--border-md);
+  border-radius: var(--r-lg); padding: 0.9rem;
+  margin-top: 0.55rem; max-width: 330px;
+}
+.panel.open { display: block; }
+.p-lbl {
+  font-size: 0.72rem; font-weight: 500; color: var(--text-2);
+  margin-bottom: 0.38rem;
+}
+.p-row { display: flex; gap: 0.4rem; margin-top: 0.5rem; flex-wrap: wrap; }
+.p-input {
+  width: 100%; background: var(--bg-surface);
+  border: 1px solid var(--border-md); border-radius: var(--r);
+  color: var(--text); padding: 0.36rem 0.65rem;
+  font-size: 0.8rem; font-family: var(--font);
+  transition: border-color 0.15s;
+}
+.p-input:focus { outline: none; border-color: var(--synonym); }
+.p-confirm {
+  padding: 0.3rem 0.85rem; border-radius: var(--r);
+  background: var(--synonym-bg); border: 1px solid rgba(4,120,87,0.3);
+  color: var(--synonym); font-size: 0.74rem; font-weight: 600;
+  font-family: var(--font); cursor: pointer; transition: all 0.12s;
+}
+.p-confirm:hover { background: rgba(4,120,87,0.12); border-color: rgba(4,120,87,0.55); }
+.p-cancel {
+  padding: 0.3rem 0.7rem; border-radius: var(--r);
+  background: transparent; border: 1px solid var(--border-md);
+  color: var(--text-3); font-size: 0.74rem; font-family: var(--font);
+  cursor: pointer; transition: all 0.12s;
+}
+.p-cancel:hover { color: var(--text-2); border-color: var(--border-lg); }
+.kw-checks { display: flex; flex-wrap: wrap; gap: 0.28rem; }
+.kw-ck-lbl {
+  display: flex; align-items: center; gap: 0.28rem;
+  background: var(--bg-surface); border: 1px solid var(--border-md);
+  border-radius: 4px; padding: 0.15rem 0.48rem;
+  font-size: 0.69rem; font-family: var(--mono); cursor: pointer;
+  transition: all 0.12s;
+}
+.kw-ck-lbl:hover { background: var(--synonym-bg); border-color: rgba(4,120,87,0.3); }
+.kw-ck-lbl input { cursor: pointer; accent-color: var(--synonym); }
+
+/* Empty state */
+.empty { text-align: center; padding: 4rem 2rem; color: var(--text-3); font-size: 0.85rem; }
+.empty-ico { font-size: 1.8rem; margin-bottom: 0.65rem; opacity: 0.45; }
+
+/* ── FOOTER */
+footer {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
+  background: rgba(255,255,255,0.97); backdrop-filter: blur(14px);
+  border-top: 1px solid var(--border-md);
+  box-shadow: 0 -1px 8px rgba(0,0,0,0.06);
+  padding: 0.6rem 1.5rem;
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+}
+.f-label {
+  font-size: 0.67rem; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-3); white-space: nowrap;
+}
+.f-divider { width: 1px; height: 18px; background: var(--border-md); flex-shrink: 0; }
+.ebtn {
+  padding: 0.28rem 0.75rem; border-radius: var(--r); border: 1px solid;
+  font-size: 0.74rem; font-weight: 500; font-family: var(--font);
+  cursor: pointer; background: transparent; transition: all 0.12s;
+  white-space: nowrap;
+}
+.ebtn.er { color: var(--remove);  border-color: rgba(220,38,38,0.3); }
+.ebtn.er:hover { background: var(--remove-bg); border-color: rgba(220,38,38,0.55); }
+.ebtn.ep { color: var(--product); border-color: rgba(180,83,9,0.3); }
+.ebtn.ep:hover { background: var(--product-bg); border-color: rgba(180,83,9,0.55); }
+.ebtn.ey { color: var(--synonym); border-color: rgba(4,120,87,0.3); }
+.ebtn.ey:hover { background: var(--synonym-bg); border-color: rgba(4,120,87,0.55); }
+.ebtn.en { color: var(--noise);   border-color: rgba(109,40,217,0.3); }
+.ebtn.en:hover { background: var(--noise-bg); border-color: rgba(109,40,217,0.55); }
+.f-spacer { flex: 1; }
+.dc-group { display: flex; gap: 0.3rem; align-items: center; }
+.dc {
+  font-family: var(--mono); font-size: 0.7rem; font-weight: 500;
+  padding: 0.12rem 0.5rem; border-radius: 4px; white-space: nowrap;
+  transition: transform 0.15s;
+}
+.dc.bump { animation: bump 0.2s ease; }
+@keyframes bump { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="overlay">
+  <div class="spin"></div>
+  <span id="overlayMsg">Loading…</span>
+</div>
+
+<!-- ══════════════════════════════ LANDING ══════════════════════════════ -->
+<div id="landing">
+  <div class="land-eyebrow">
+    <div class="land-eyebrow-line"></div>
+    <div class="land-eyebrow-dot"></div>
+    NL Taxonomy Mapper V3
+    <div class="land-eyebrow-dot"></div>
+    <div class="land-eyebrow-line"></div>
+  </div>
+
+  <h1 class="land-title">Unmapped <span>URL Triage</span></h1>
+  <p class="land-sub">Review unmapped rows, assign decisions, and export actionable fix files — all in your browser.</p>
+
+  <div class="dropzone" id="dropzone">
+    <div class="dz-icon">📂</div>
+    <div class="dz-title">Drop taxonomy_match_*.xlsx here</div>
+    <div class="dz-sub">Requires a <em>Results</em> sheet with an <em>Unmapped_Reason</em> column</div>
+    <div class="browse-btn" id="browseBtn">Browse for file</div>
+  </div>
+  <input type="file" id="fileInput" accept=".xlsx,.xls">
+  <div id="loadStatus"></div>
+
+  <div class="land-tags">
+    <span class="land-tag">📰 Artikel Noise</span>
+    <span class="land-tag">🏷 Product Issues</span>
+    <span class="land-tag">🔍 Near-Misses</span>
+    <span class="land-tag">⚠ No Keywords</span>
+    <span class="land-tag">4 export formats</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════ APP ══════════════════════════════ -->
+<div id="app">
+
+  <!-- Header -->
+  <header class="app-hdr">
+    <div class="hdr-logo">
+      <div class="hdr-logo-mark">◈</div>
+      Unmapped Triage
+    </div>
+    <div class="hdr-divider"></div>
+    <div class="hdr-file" id="hdrMeta">—</div>
+    <div class="hdr-spacer"></div>
+    <span class="country-chip" id="hdrCountry">??</span>
+    <button class="new-file-btn" id="newFileBtn">↩ New file</button>
+  </header>
+
+  <!-- Filter tabs -->
+  <div class="filter-row">
+    <button class="filter-tab active" data-g="all">All <span class="tab-cnt" id="c-all">0</span></button>
+    <button class="filter-tab" data-g="noise">📰 Artikel Noise <span class="tab-cnt" id="c-noise">0</span></button>
+    <button class="filter-tab" data-g="product">🏷 Product Issues <span class="tab-cnt" id="c-product">0</span></button>
+    <button class="filter-tab" data-g="miss">🔍 Near-Misses <span class="tab-cnt" id="c-miss">0</span></button>
+    <button class="filter-tab" data-g="nokw">⚠ No Keywords <span class="tab-cnt" id="c-nokw">0</span></button>
+    <div class="filter-spacer"></div>
+    <div class="prog-display">
+      <div class="prog-bar-wrap"><div class="prog-bar-fill" id="progFill"></div></div>
+      <span id="progText">0 / 0</span>
+    </div>
+  </div>
+
+  <!-- Bulk bar -->
+  <div class="bulk-bar" id="bulkBar">
+    <span class="bulk-lbl" id="bulkLbl">Bulk:</span>
+    <button class="bulk-btn r" id="bBulkRemove">🗑 Remove All</button>
+    <button class="bulk-btn n" id="bBulkNoise">🔕 Mark All Noise</button>
+    <div class="bulk-prod-wrap">
+      <button class="bulk-btn p" id="bBulkProduct">🏷 Fix All → Product:</button>
+      <input class="bulk-prod-input" id="bulkProdInput" placeholder="new product name…">
+    </div>
+    <button class="bulk-btn s" id="bBulkSkip">⏭ Skip All</button>
+  </div>
+
+  <!-- Table -->
+  <div class="tbl-wrap">
+    <table id="tbl" style="display:none">
+      <thead>
+        <tr>
+          <th>URL / Title</th>
+          <th>Reason</th>
+          <th>Product</th>
+          <th>Unmatched Keywords</th>
+          <th style="min-width:285px">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="empty" id="emptyState" style="display:none">
+      <div class="empty-ico">✅</div>
+      No rows in this group
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <span class="f-label">Export</span>
+    <div class="f-divider"></div>
+    <button class="ebtn er" id="bExpRemove">🗑 Exclusions JSON</button>
+    <button class="ebtn ep" id="bExpProduct">🏷 Category Fixes JSON</button>
+    <button class="ebtn ey" id="bExpSynonym">✏ Synonym Patch JSON</button>
+    <button class="ebtn en" id="bExpNoise">🔕 Noise Phrases TXT</button>
+    <div class="f-spacer"></div>
+    <div class="dc-group">
+      <span class="dc" id="dc-r" style="background:var(--remove-bg);color:var(--remove)">🗑 0</span>
+      <span class="dc" id="dc-p" style="background:var(--product-bg);color:var(--product)">🏷 0</span>
+      <span class="dc" id="dc-y" style="background:var(--synonym-bg);color:var(--synonym)">✏ 0</span>
+      <span class="dc" id="dc-n" style="background:var(--noise-bg);color:var(--noise)">🔕 0</span>
+      <span class="dc" id="dc-s" style="background:var(--skip-bg);color:var(--text-3)">⏭ 0</span>
+    </div>
+  </footer>
+
+</div><!-- #app -->
+
+<script>
+// ─────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────
+const NOISE_PREFIXES = [
+  'dit artikel', 'artikel vind', 'artikel lees', 'artikel legt', 'artikel leggen',
+  'alle artikelen', 'mijn artikelen', 'nieuw artikel', 'zoek artikel', 'artikel indien',
+  'artikel willen', 'artikel kunt', 'artikel worden', 'artikel leer', 'artikel meer',
+  'artikel zoeken', 'artikel bijdragen', 'artikel aanmaken',
+  'van een ', 'bij het ', 'voor het ', 'met de ', 'is de ',
+  'raadpleeg', 'biedt een overzicht', 'legt uit hoe', 'een overzicht van',
+  'van artikelen', 'dit artikel'
+];
+
+// ─────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────
+let rows      = [];
+let decisions = {};
+let country   = 'XX';
+let srcFile   = '';
+let curGroup  = 'all';
+
+// ─────────────────────────────────────────────────
+// File loading
+// ─────────────────────────────────────────────────
+const dropzone  = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const browseBtn = document.getElementById('browseBtn');
+const loadStatus = document.getElementById('loadStatus');
+
+dropzone.addEventListener('dragover',  e => { e.preventDefault(); dropzone.classList.add('over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('over');
+  const f = e.dataTransfer.files[0]; if (f) loadFile(f);
+});
+dropzone.addEventListener('click', e => { if (e.target !== browseBtn) fileInput.click(); });
+browseBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadFile(fileInput.files[0]); });
+document.getElementById('newFileBtn').addEventListener('click', resetToLanding);
+
+function loadFile(file) {
+  srcFile = file.name;
+  country = detectCountry(file.name);
+  showOverlay('Reading ' + file.name + '…');
+  loadStatus.textContent = '';
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const sheetName = wb.SheetNames.find(n => /result/i.test(n)) || wb.SheetNames[0];
+      const ws   = wb.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      const unmapped = data.filter(r => {
+        const domain = String(r.Domain || '').trim().toUpperCase();
+        const reason = String(r.Unmapped_Reason || '').trim();
+        return domain === 'UNMAPPED' || reason.length > 0;
+      });
+
+      hideOverlay();
+
+      if (unmapped.length === 0) {
+        loadStatus.textContent = '⚠ No UNMAPPED rows found. Check file has a Results sheet with Domain=UNMAPPED rows.';
+        return;
+      }
+
+      rows = unmapped.map((r, i) => ({
+        ...r,
+        _id:    i,
+        _url:   String(r.URL || '').trim().split('#')[0],
+        _group: detectGroup(r)
+      }));
+
+      decisions = {};
+      rows.forEach(r => {
+        decisions[r._id] = { action: null, newProduct: '', synonyms: [], noiseKws: [] };
+      });
+
+      buildApp();
+
+    } catch (err) {
+      hideOverlay();
+      loadStatus.textContent = '❌ Error reading file: ' + err.message;
+      console.error(err);
+    }
+  };
+  reader.onerror = () => { hideOverlay(); loadStatus.textContent = '❌ Could not read file.'; };
+  reader.readAsArrayBuffer(file);
+}
+
+function detectCountry(name) {
+  const m = name.match(/_([A-Z]{2})(?:[_.]|$)/);
+  return m ? m[1] : 'XX';
+}
+
+function detectGroup(row) {
+  const reason = String(row.Unmapped_Reason || '').toLowerCase();
+  const kws    = String(row.Unmatched_Keywords || '').toLowerCase();
+
+  if (reason.includes('no keywords')) return 'nokw';
+  if (reason.includes('product filter') || reason.includes('product:')) return 'product';
+
+  const kwList = kws.split(',').map(k => k.trim()).filter(Boolean);
+  if (kwList.length === 0) return 'nokw';
+  const noiseCount = kwList.filter(isNoise).length;
+  if (noiseCount / kwList.length >= 0.25) return 'noise';
+  return 'miss';
+}
+
+function isNoise(kw) {
+  const k = kw.toLowerCase().trim();
+  return NOISE_PREFIXES.some(p => k.startsWith(p));
+}
+
+// ─────────────────────────────────────────────────
+// Build / reset app
+// ─────────────────────────────────────────────────
+function buildApp() {
+  document.getElementById('landing').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+
+  document.getElementById('hdrCountry').textContent = country;
+  document.getElementById('hdrMeta').textContent =
+    srcFile + '  ·  ' + rows.length + ' unmapped rows';
+
+  const cnt = countGroups();
+  document.getElementById('c-all').textContent     = cnt.all;
+  document.getElementById('c-noise').textContent   = cnt.noise;
+  document.getElementById('c-product').textContent = cnt.product;
+  document.getElementById('c-miss').textContent    = cnt.miss;
+  document.getElementById('c-nokw').textContent    = cnt.nokw;
+
+  curGroup = 'all';
+  document.querySelectorAll('.filter-tab').forEach(p => {
+    p.classList.toggle('active', p.dataset.g === 'all');
+  });
+  document.getElementById('bulkBar').classList.remove('on');
+  renderTable();
+}
+
+function resetToLanding() {
+  rows = []; decisions = {};
+  document.getElementById('landing').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  loadStatus.textContent = '';
+  fileInput.value = '';
+}
+
+function countGroups() {
+  const c = { all: rows.length, noise: 0, product: 0, miss: 0, nokw: 0 };
+  rows.forEach(r => { if (c[r._group] !== undefined) c[r._group]++; });
+  return c;
+}
+
+// ─────────────────────────────────────────────────
+// Filter tabs
+// ─────────────────────────────────────────────────
+document.querySelectorAll('.filter-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-tab').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    curGroup = btn.dataset.g;
+
+    const bulkBar = document.getElementById('bulkBar');
+    if (curGroup !== 'all') {
+      bulkBar.classList.add('on');
+      document.getElementById('bulkLbl').textContent =
+        'Bulk (' + btn.textContent.replace(/\d+/, '').trim() + '):';
+    } else {
+      bulkBar.classList.remove('on');
+    }
+    renderTable();
+  });
+});
+
+function visibleRows() {
+  return curGroup === 'all' ? rows : rows.filter(r => r._group === curGroup);
+}
+
+// ─────────────────────────────────────────────────
+// Render table
+// ─────────────────────────────────────────────────
+function renderTable() {
+  const subset = visibleRows();
+  const tbody  = document.getElementById('tbody');
+  tbody.innerHTML = '';
+
+  if (subset.length === 0) {
+    document.getElementById('tbl').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'block';
+  } else {
+    document.getElementById('tbl').style.display = 'table';
+    document.getElementById('emptyState').style.display = 'none';
+    const frag = document.createDocumentFragment();
+    subset.forEach(row => frag.appendChild(buildRow(row)));
+    tbody.appendChild(frag);
+  }
+  updateProgress();
+}
+
+function buildRow(row) {
+  const id  = row._id;
+  const dec = decisions[id];
+  const url = row._url;
+  const kws = String(row.Unmatched_Keywords || '').split(',').map(k => k.trim()).filter(Boolean);
+  const reason           = String(row.Unmapped_Reason || '');
+  const product          = String(row.Product || '');
+  const suggestedProduct = String(row.Suggested_Product || '');
+  const title            = String(row.Title || '');
+
+  const tr = document.createElement('tr');
+  if (dec.action) {
+    tr.className = 'decided da-' + (dec.action === 'fix_product' ? 'fix_product' : dec.action);
+  }
+  tr.id = 'tr' + id;
+
+  // ── URL / Title
+  const tdUrl = document.createElement('td');
+  tdUrl.className = 'url-cell';
+  const a = document.createElement('a');
+  a.href = url || '#'; a.target = '_blank'; a.rel = 'noopener';
+  a.className = 'url-link';
+  a.textContent = shortenUrl(url);
+  tdUrl.appendChild(a);
+  if (title) {
+    const d = document.createElement('div');
+    d.className = 'title-txt';
+    d.textContent = title.substring(0, 80) + (title.length > 80 ? '…' : '');
+    tdUrl.appendChild(d);
+  }
+
+  // ── Reason badge
+  const tdReason = document.createElement('td');
+  tdReason.className = 'reason-cell';
+  const badge = document.createElement('span');
+  badge.className = 'badge b-' + row._group;
+  badge.textContent = { noise:'📰 Noise', product:'🏷 Product', miss:'🔍 No Match', nokw:'⚠ No KW' }[row._group];
+  tdReason.appendChild(badge);
+  if (reason) {
+    const d = document.createElement('div');
+    d.className = 'reason-detail';
+    d.textContent = reason.substring(0, 65) + (reason.length > 65 ? '…' : '');
+    tdReason.appendChild(d);
+  }
+
+  // ── Product
+  const tdProd = document.createElement('td');
+  tdProd.className = 'prod-cell';
+  const pCurrent = document.createElement('div');
+  pCurrent.className = 'prod-current';
+  pCurrent.textContent = product || '—';
+  tdProd.appendChild(pCurrent);
+  if (suggestedProduct) {
+    const d = document.createElement('div');
+    d.className = 'prod-suggest-chip';
+    d.textContent = '💡 ' + suggestedProduct;
+    tdProd.appendChild(d);
+  }
+  if (dec.newProduct) {
+    const d = document.createElement('div'); d.className = 'prod-new';
+    d.textContent = '→ ' + dec.newProduct; tdProd.appendChild(d);
+  }
+
+  // ── Keywords
+  const tdKw = document.createElement('td');
+  tdKw.className = 'kw-cell';
+  kws.forEach(kw => {
+    const s = document.createElement('span');
+    s.className = 'kw-pill' + (isNoise(kw) ? ' nkw' : '');
+    s.textContent = kw; tdKw.appendChild(s);
+  });
+
+  // ── Actions
+  const tdAct = document.createElement('td');
+  tdAct.className = 'act-cell';
+
+  function makeBtn(label, cls, action) {
+    const btn = document.createElement('button');
+    btn.className = 'abtn ' + cls + (dec.action === action ? ' on' : '');
+    btn.textContent = label;
+    btn.addEventListener('click', () => applyDecision(id, action));
+    return btn;
+  }
+
+  const btnGroup = document.createElement('div');
+  btnGroup.className = 'action-btns';
+  btnGroup.appendChild(makeBtn('🗑 Remove',      'r', 'remove'));
+  btnGroup.appendChild(makeBtn('🏷 Fix Product', 'p', 'fix_product'));
+  btnGroup.appendChild(makeBtn('✏ Synonym',      'y', 'synonym'));
+  btnGroup.appendChild(makeBtn('🔕 Noise',       'n', 'noise'));
+  btnGroup.appendChild(makeBtn('⏭ Skip',         's', 'skip'));
+  tdAct.appendChild(btnGroup);
+
+  // ── Inline: Fix Product panel
+  const pprod = document.createElement('div');
+  pprod.className = 'panel' + (dec.action === 'fix_product' ? ' open' : '');
+  pprod.id = 'pp' + id;
+
+  const ppOldLbl = document.createElement('div'); ppOldLbl.className = 'p-lbl';
+  ppOldLbl.textContent = 'Current: ' + (product || '—');
+  const ppNewLbl = document.createElement('div'); ppNewLbl.className = 'p-lbl';
+  ppNewLbl.style.marginTop = '0.4rem';
+  if (suggestedProduct && !dec.newProduct) {
+    ppNewLbl.innerHTML = 'New product name <span style="color:var(--suggest);font-size:0.67rem;font-family:var(--mono)">💡 pre-filled from Suggested_Product</span>';
+  } else {
+    ppNewLbl.textContent = 'New product name:';
+  }
+  const ppInput = document.createElement('input');
+  ppInput.className = 'p-input'; ppInput.id = 'ppi' + id;
+  ppInput.placeholder = 'e.g. Adsolut boekhouding';
+  ppInput.value = dec.newProduct || suggestedProduct;
+
+  const ppRow = document.createElement('div'); ppRow.className = 'p-row';
+  const ppConf = document.createElement('button'); ppConf.className = 'p-confirm';
+  ppConf.textContent = '✓ Confirm Fix';
+  ppConf.addEventListener('click', () => confirmProduct(id));
+  const ppCancel = document.createElement('button'); ppCancel.className = 'p-cancel';
+  ppCancel.textContent = '✕ Cancel';
+  ppCancel.addEventListener('click', () => closePanel('pp' + id, id, 'fix_product'));
+  ppRow.appendChild(ppConf); ppRow.appendChild(ppCancel);
+
+  pprod.appendChild(ppOldLbl); pprod.appendChild(ppNewLbl);
+  pprod.appendChild(ppInput); pprod.appendChild(ppRow);
+
+  // ── Inline: Synonym panel
+  const psyn = document.createElement('div');
+  psyn.className = 'panel' + (dec.action === 'synonym' ? ' open' : '');
+  psyn.id = 'ps' + id;
+
+  const psLbl1 = document.createElement('div'); psLbl1.className = 'p-lbl';
+  psLbl1.textContent = 'Select keywords to map as synonyms:';
+  const kwChecks = document.createElement('div'); kwChecks.className = 'kw-checks';
+  kws.forEach((kw, i) => {
+    const lbl = document.createElement('label'); lbl.className = 'kw-ck-lbl';
+    const cb  = document.createElement('input');
+    cb.type = 'checkbox'; cb.id = 'ck' + id + '_' + i; cb.value = kw;
+    cb.checked = dec.synonyms.some(s => s.keyword === kw);
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(kw));
+    kwChecks.appendChild(lbl);
+  });
+  if (kws.length === 0) {
+    const none = document.createElement('span'); none.style.color = 'var(--text-3)';
+    none.textContent = 'No unmatched keywords'; kwChecks.appendChild(none);
+  }
+
+  const psLbl2 = document.createElement('div'); psLbl2.className = 'p-lbl';
+  psLbl2.textContent = 'Taxonomy topic to map to:'; psLbl2.style.marginTop = '0.5rem';
+  const psInput = document.createElement('input');
+  psInput.className = 'p-input'; psInput.id = 'psi' + id;
+  psInput.placeholder = 'e.g. OSS aangifte';
+  psInput.value = dec.synonyms.length > 0 ? dec.synonyms[0].topic : '';
+
+  const psRow = document.createElement('div'); psRow.className = 'p-row';
+  const psConf = document.createElement('button'); psConf.className = 'p-confirm';
+  psConf.textContent = '✓ Add Synonyms';
+  psConf.addEventListener('click', () => confirmSynonym(id, kws));
+  const psCancel = document.createElement('button'); psCancel.className = 'p-cancel';
+  psCancel.textContent = '✕ Cancel';
+  psCancel.addEventListener('click', () => closePanel('ps' + id, id, 'synonym'));
+  psRow.appendChild(psConf); psRow.appendChild(psCancel);
+
+  psyn.appendChild(psLbl1); psyn.appendChild(kwChecks);
+  psyn.appendChild(psLbl2); psyn.appendChild(psInput); psyn.appendChild(psRow);
+
+  tdAct.appendChild(pprod);
+  tdAct.appendChild(psyn);
+
+  tr.appendChild(tdUrl); tr.appendChild(tdReason); tr.appendChild(tdProd);
+  tr.appendChild(tdKw);  tr.appendChild(tdAct);
+  return tr;
+}
+
+// ─────────────────────────────────────────────────
+// Decision logic
+// ─────────────────────────────────────────────────
+function applyDecision(id, action) {
+  const dec = decisions[id];
+
+  if (dec.action === action && action !== 'fix_product' && action !== 'synonym') {
+    dec.action = null;
+  } else {
+    dec.action = action;
+  }
+
+  refreshRow(id);
+
+  if (action === 'fix_product') {
+    document.getElementById('pp' + id)?.classList.add('open');
+    document.getElementById('ps' + id)?.classList.remove('open');
+  } else if (action === 'synonym') {
+    document.getElementById('ps' + id)?.classList.add('open');
+    document.getElementById('pp' + id)?.classList.remove('open');
+  } else {
+    document.getElementById('pp' + id)?.classList.remove('open');
+    document.getElementById('ps' + id)?.classList.remove('open');
+  }
+
+  updateProgress(); updateCounts();
+}
+
+function confirmProduct(id) {
+  const input = document.getElementById('ppi' + id);
+  const val   = input ? input.value.trim() : '';
+  if (!val) { alert('Please enter the new product name.'); return; }
+  decisions[id].newProduct = val;
+  decisions[id].action     = 'fix_product';
+  document.getElementById('pp' + id)?.classList.remove('open');
+  refreshRow(id);
+  updateProgress(); updateCounts();
+}
+
+function confirmSynonym(id, kws) {
+  const topicInput = document.getElementById('psi' + id);
+  const topic = topicInput ? topicInput.value.trim() : '';
+  if (!topic) { alert('Please enter the taxonomy topic name.'); return; }
+
+  const selected = kws.filter((kw, i) => {
+    const cb = document.getElementById('ck' + id + '_' + i);
+    return cb && cb.checked;
+  });
+  if (selected.length === 0) { alert('Please select at least one keyword.'); return; }
+
+  decisions[id].synonyms = selected.map(k => ({ keyword: k, topic }));
+  decisions[id].action   = 'synonym';
+  document.getElementById('ps' + id)?.classList.remove('open');
+  refreshRow(id);
+  updateProgress(); updateCounts();
+}
+
+function closePanel(panelId, id, action) {
+  document.getElementById(panelId)?.classList.remove('open');
+  const dec = decisions[id];
+  if (action === 'fix_product' && !dec.newProduct) dec.action = null;
+  if (action === 'synonym'     && dec.synonyms.length === 0) dec.action = null;
+  refreshRow(id);
+  updateProgress(); updateCounts();
+}
+
+function refreshRow(id) {
+  const oldTr = document.getElementById('tr' + id);
+  if (!oldTr) return;
+  const row = rows.find(r => r._id === id);
+  if (row) oldTr.replaceWith(buildRow(row));
+}
+
+// ─────────────────────────────────────────────────
+// Bulk actions
+// ─────────────────────────────────────────────────
+document.getElementById('bBulkRemove').addEventListener('click', () => {
+  visibleRows().forEach(r => { decisions[r._id].action = 'remove'; });
+  renderTable(); updateCounts();
+});
+document.getElementById('bBulkNoise').addEventListener('click', () => {
+  visibleRows().forEach(r => {
+    decisions[r._id].action = 'noise';
+    const kws = String(r.Unmatched_Keywords || '').split(',').map(k => k.trim()).filter(isNoise);
+    decisions[r._id].noiseKws = kws;
+  });
+  renderTable(); updateCounts();
+});
+document.getElementById('bBulkSkip').addEventListener('click', () => {
+  visibleRows().forEach(r => { decisions[r._id].action = 'skip'; });
+  renderTable(); updateCounts();
+});
+document.getElementById('bBulkProduct').addEventListener('click', () => {
+  const val = document.getElementById('bulkProdInput').value.trim();
+  if (!val) { alert('Enter the new product name first.'); return; }
+  visibleRows().forEach(r => {
+    decisions[r._id].action     = 'fix_product';
+    decisions[r._id].newProduct = val;
+  });
+  renderTable(); updateCounts();
+});
+
+// ─────────────────────────────────────────────────
+// Progress & counts
+// ─────────────────────────────────────────────────
+function updateProgress() {
+  const reviewed = rows.filter(r => decisions[r._id].action !== null).length;
+  document.getElementById('progText').textContent = reviewed + ' / ' + rows.length;
+  const pct = rows.length > 0 ? (reviewed / rows.length * 100) : 0;
+  const fill = document.getElementById('progFill');
+  if (fill) fill.style.width = pct + '%';
+}
+
+function updateCounts() {
+  const c = { remove: 0, fix_product: 0, synonym: 0, noise: 0, skip: 0 };
+  rows.forEach(r => { const a = decisions[r._id].action; if (a && c[a] !== undefined) c[a]++; });
+  setDc('dc-r', '🗑 ' + c.remove);
+  setDc('dc-p', '🏷 ' + c.fix_product);
+  setDc('dc-y', '✏ '  + c.synonym);
+  setDc('dc-n', '🔕 ' + c.noise);
+  setDc('dc-s', '⏭ '  + c.skip);
+}
+
+function setDc(id, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.textContent !== text) {
+    el.textContent = text;
+    el.classList.remove('bump');
+    void el.offsetWidth; // reflow
+    el.classList.add('bump');
+  }
+}
+
+// ─────────────────────────────────────────────────
+// Exports
+// ─────────────────────────────────────────────────
+document.getElementById('bExpRemove').addEventListener('click',  exportExclusions);
+document.getElementById('bExpProduct').addEventListener('click', exportCategoryFixes);
+document.getElementById('bExpSynonym').addEventListener('click', exportSynonymPatch);
+document.getElementById('bExpNoise').addEventListener('click',   exportNoisePhrases);
+
+function today() { return new Date().toISOString().slice(0, 10); }
+
+function dlJson(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  dlBlob(blob, filename);
+}
+function dlBlob(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportExclusions() {
+  const urls = rows.filter(r => decisions[r._id].action === 'remove').map(r => r._url);
+  if (!urls.length) { alert('No rows marked for removal (🗑 Remove).'); return; }
+  dlJson({
+    country, exported_at: new Date().toISOString(), source_file: srcFile,
+    total_exclusions: urls.length, excluded_urls: urls
+  }, 'unmapped_exclusions_' + country + '_' + today() + '.json');
+}
+
+function exportCategoryFixes() {
+  const fixes = rows
+    .filter(r => decisions[r._id].action === 'fix_product' && decisions[r._id].newProduct)
+    .map(r => ({
+      url: r._url,
+      old_product: String(r.Product || ''),
+      new_product: decisions[r._id].newProduct
+    }));
+  if (!fixes.length) { alert('No product fixes recorded (🏷 Fix Product).'); return; }
+  dlJson({
+    country, exported_at: new Date().toISOString(), source_file: srcFile,
+    total_fixes: fixes.length, fixes
+  }, 'category_fixes_' + country + '_' + today() + '.json');
+}
+
+function exportSynonymPatch() {
+  const topicMap = {};
+  rows.filter(r => decisions[r._id].action === 'synonym').forEach(r => {
+    decisions[r._id].synonyms.forEach(({ keyword, topic }) => {
+      if (!topicMap[topic]) topicMap[topic] = new Set();
+      topicMap[topic].add(keyword.toLowerCase().trim());
+    });
+  });
+  if (!Object.keys(topicMap).length) { alert('No synonyms recorded (✏ Synonym).'); return; }
+
+  const synonyms = {};
+  Object.entries(topicMap).forEach(([t, s]) => { synonyms[t] = [...s]; });
+  dlJson({
+    country, exported_at: new Date().toISOString(), source_file: srcFile,
+    total_synonyms: Object.values(synonyms).reduce((n, a) => n + a.length, 0),
+    synonyms
+  }, 'synonym_patch_' + country + '_' + today() + '.json');
+}
+
+function exportNoisePhrases() {
+  const phrases = new Set();
+  rows.filter(r => decisions[r._id].action === 'noise').forEach(r => {
+    const kws = String(r.Unmatched_Keywords || '').split(',').map(k => k.trim()).filter(Boolean);
+    kws.forEach(kw => {
+      const k = kw.toLowerCase();
+      if (isNoise(k)) {
+        const words = k.split(/\s+/);
+        if (words.length >= 2) phrases.add(words.slice(0, 2).join(' '));
+        else phrases.add(k);
+      }
+    });
+  });
+  if (!phrases.size) { alert('No noise phrases recorded (🔕 Noise).'); return; }
+
+  const lines = [
+    '# Noise phrases to add to NOISE_PHRASE_STARTS in content_keyword_extractor.py',
+    '# Generated: ' + new Date().toISOString(),
+    '# Country: ' + country,
+    '# Source: ' + srcFile,
+    '',
+    '# Add to NOISE_PHRASE_STARTS list (line ~121 in content_keyword_extractor.py):',
+    ...([...phrases].sort().map(p => "    '" + p + "',"))
+  ];
+  dlBlob(new Blob([lines.join('\n')], { type: 'text/plain' }),
+    'noise_additions_' + country + '_' + today() + '.txt');
+}
+
+// ─────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────
+function showOverlay(msg) {
+  document.getElementById('overlayMsg').textContent = msg;
+  document.getElementById('overlay').classList.add('on');
+}
+function hideOverlay() { document.getElementById('overlay').classList.remove('on'); }
+
+function shortenUrl(url) {
+  try {
+    const u = new URL(url);
+    const p = u.pathname;
+    return u.hostname + (p.length > 55 ? p.substring(0, 55) + '…' : p);
+  } catch { return url.substring(0, 70); }
+}
+</script>
+</body>
+</html>
