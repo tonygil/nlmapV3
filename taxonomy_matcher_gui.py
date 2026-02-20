@@ -6,9 +6,9 @@ Modern interface with multi-country support
 # =============================================================================
 # VERSION - Update this when making changes to the application
 # =============================================================================
-VERSION = "3.15"
-VERSION_DATE = "2026-02-17"
-VERSION_NOTES = "Source-aware keyword matching — Title keywords use lower threshold (70) and boosted relevance; URL keywords get Low Trust label at borderline scores"
+VERSION = "3.28"
+VERSION_DATE = "2026-02-20"
+VERSION_NOTES = "Remove post_processor dependency — URL Pattern Filter now runs directly without rank trim or confidence scoring side effects"
 # =============================================================================
 
 import tkinter as tk
@@ -22,9 +22,24 @@ from datetime import datetime
 from taxonomy_matcher import TaxonomyMatcher
 from strict_content_matcher import StrictContentMatcher
 from country_config import CountryConfig
-from post_processor import PostProcessor, URL_EXCLUSION_PATTERNS
+import re
+from urllib.parse import urlparse, unquote
 import sys
 import pandas as pd
+
+# URL patterns for the Filter URL Patterns feature
+URL_EXCLUSION_PATTERNS = [
+    ('special_pages', r'/Special:', 'Special pages (login/search/password)'),
+    ('shallow_nav', r'^https?://[^/]+/[^/]+(/[^/?#]+)?/?(\?(title=)?)?(\#(title)?)?$', 'Shallow navigation pages (depth 1-2)'),
+    ('edit_mode', r'[?&]action=edit', 'Edit mode URLs'),
+    ('root_domain', r'^https?://[^/]+/?#?$', 'Root domain only'),
+    ('go_redirects', r'/@go/', 'Redirect shortcuts'),
+    ('archive_pages', r'/Archive/', 'Archived content'),
+    ('media_repo', r'/Media_Repo', 'Media repository'),
+]
+URL_ANCHOR_CLEANUP_PATTERNS = [
+    ('all_anchors', r'#[^#]*$', 'All URL anchors (#elm-main-content, #title, #Guidelines, etc.)'),
+]
 
 
 # ==================== TOOLTIP HELPER CLASS ====================
@@ -285,7 +300,7 @@ class TaxonomyMapperGUI:
         self.taxonomy_file = tk.StringVar()
         self.output_file = tk.StringVar(value='taxonomy_match.xlsx')
         self.threshold = tk.IntVar(value=80)
-        self.top_n = tk.IntVar(value=3)
+        self.top_n = tk.IntVar(value=6)
         self.debug_mode = tk.BooleanVar(value=False)
         self.max_rows_var = tk.IntVar(value=0)
         self.url_filter_var = tk.StringVar(value='')
@@ -711,21 +726,6 @@ class TaxonomyMapperGUI:
             cursor='hand2'
         )
         reset_btn.pack(side='left', padx=5)
-
-        self.postprocess_btn = tk.Button(
-            btn_frame,
-            text="🧹 Clean Output",
-            command=self.run_post_processing,
-            font=('Segoe UI', 10),
-            bg='#8b5cf6',
-            fg='white',
-            relief='flat',
-            padx=20,
-            pady=12,
-            cursor='hand2'
-        )
-        self.postprocess_btn.pack(side='left', padx=5)
-        ToolTip(self.postprocess_btn, "Post-process the output file to remove noise and rank issues")
 
         self.url_pattern_btn = tk.Button(
             btn_frame,
@@ -2209,7 +2209,7 @@ class TaxonomyMapperGUI:
         priority_combo.pack(side='left', padx=(5, 20))
 
         tk.Label(filter_content, text="Min Score:", font=('Segoe UI', 10), bg=self.colors['card']).pack(side='left')
-        self.assistant_min_score = tk.StringVar(value='85')
+        self.assistant_min_score = tk.StringVar(value=str(self.threshold.get()))
         tk.Entry(filter_content, textvariable=self.assistant_min_score, width=6, font=('Segoe UI', 10)).pack(side='left', padx=(5, 20))
 
         # Topic Scope selector - Never-Matched Only vs All Topics
@@ -2930,26 +2930,20 @@ class TaxonomyMapperGUI:
 
             # Check for keyword recommendations with synonym suggestions
             rec_df = getattr(matcher, '_recommendations_df', None)
+            near_misses = getattr(matcher, '_keyword_near_misses', {})
             if rec_df is not None and len(rec_df) > 0:
-                synonym_recs = rec_df[
-                    (rec_df['Priority'] == 'HIGH') &
-                    (rec_df['Recommendation'].str.startswith('Add as synonym')) &
-                    (rec_df['Already_In_Synonyms'] != 'Yes')
+                review_df = rec_df[
+                    rec_df['Priority'].isin(['HIGH', 'MEDIUM']) &
+                    rec_df['Action'].isin(['Add synonym', 'Review synonym', 'Consider synonym']) &
+                    (rec_df['In_Synonyms'] != 'Yes')
                 ].copy()
 
-                if len(synonym_recs) > 0:
-                    apply_df = synonym_recs.rename(columns={
-                        'Nearest_Topic': 'Topic',
-                        'Keyword': 'Proposed_Synonym'
-                    })
+                if len(review_df) > 0:
                     output_file = self.output_file.get()
-                    total_recs = len(rec_df)
-                    high_count = len(synonym_recs)
-                    self.root.after(0, lambda: self._show_keyword_rec_apply_dialog(
-                        output_file=output_file,
-                        total_recs=total_recs,
-                        high_priority_count=high_count,
-                        apply_df=apply_df
+                    self.root.after(0, lambda: self._show_synonym_review_dialog(
+                        rec_df=review_df,
+                        near_misses_dict=near_misses,
+                        output_file=output_file
                     ))
                 else:
                     self.root.after(0, lambda: messagebox.showinfo(
@@ -2981,91 +2975,6 @@ class TaxonomyMapperGUI:
         self.root.after(3000, lambda: self.processing_status.config(text=""))
 
     # ==================== POST-PROCESSING METHODS ====================
-
-    def run_post_processing(self):
-        """Run post-processor on output file."""
-        # Allow user to pick file or use current output
-        output_path = self.output_file.get()
-        if not output_path or not os.path.exists(output_path):
-            output_path = filedialog.askopenfilename(
-                title="Select taxonomy match output file to clean",
-                filetypes=[("Excel files", "*.xlsx")]
-            )
-            if not output_path:
-                return
-
-        if self.is_processing:
-            messagebox.showwarning("Warning", "Already processing")
-            return
-
-        self.is_processing = True
-        self.postprocess_btn.config(state='disabled')
-        self.progress.start(10)
-        self.processing_status.config(text="🧹 Post-processing output...")
-        self.status_label.config(text="Post-processing...")
-
-        thread = threading.Thread(
-            target=self._postprocess_worker, args=(output_path,), daemon=True
-        )
-        thread.start()
-
-    def _postprocess_worker(self, input_path):
-        """Background worker for post-processing."""
-        try:
-            base, ext = os.path.splitext(input_path)
-            output_path = f"{base}_cleaned{ext}"
-
-            original_stdout = sys.stdout
-
-            class LogWriter:
-                def __init__(self, log_func):
-                    self.log_func = log_func
-                def write(self, text):
-                    if text.strip():
-                        self.log_func(text.strip())
-                def flush(self):
-                    pass
-
-            sys.stdout = LogWriter(self.log)
-
-            config = {
-                'max_rank': self.top_n.get(),  # Use the Top N slider value
-                'frequency_threshold': 0.20,
-                'remove_low_confidence': False,
-            }
-
-            pp = PostProcessor(config)
-            pp.load(input_path)
-            pp.run_all()
-            pp.print_stats()
-            pp.export(output_path)
-
-            sys.stdout = original_stdout
-
-            self.root.after(0, lambda: messagebox.showinfo(
-                "Post-Processing Complete",
-                f"Cleaned output saved to:\n{output_path}\n\n"
-                f"Rows before: {pp.stats.get('rows_before', '?')}\n"
-                f"Rows after: {pp.stats.get('rows_after', '?')}\n"
-                f"Removed: {pp.stats.get('rows_removed', '?')} ({pp.stats.get('pct_removed', 0):.1f}%)"
-            ))
-
-        except Exception as e:
-            sys.stdout = sys.__stdout__
-            self.log(f"Post-processing error: {str(e)}")
-            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
-
-        finally:
-            self.root.after(0, self._postprocess_finish)
-
-    def _postprocess_finish(self):
-        """Finish post-processing."""
-        self.progress.stop()
-        self.processing_status.config(text="✓ Post-processing complete!")
-        self.postprocess_btn.config(state='normal')
-        self.is_processing = False
-        self.status_label.config(text="Ready")
-        self.root.after(3000, lambda: self.processing_status.config(text=""))
 
     # ==================== URL PATTERN FILTER METHODS ====================
 
@@ -3103,12 +3012,22 @@ class TaxonomyMapperGUI:
         # Load in background thread
         def load_and_show():
             try:
-                pp = PostProcessor()
-                pp.load(output_path)
-                preview = pp.preview_url_patterns()
-                anchor_preview = pp.preview_anchor_cleanup()
-                row_count = len(pp.df)
-                # Show dialog on main thread
+                df = pd.read_excel(output_path)
+                row_count = len(df)
+                unique_urls = df['URL'].dropna().unique()
+
+                anchor_preview = {}
+                for name, regex, desc in URL_ANCHOR_CLEANUP_PATTERNS:
+                    matching = [str(u) for u in unique_urls if re.search(regex, str(u), re.IGNORECASE)]
+                    cleaned = [re.sub(regex, '', u, flags=re.IGNORECASE) for u in matching]
+                    anchor_preview[name] = {'description': desc, 'count': len(matching),
+                                            'sample_urls': matching[:10], 'cleaned_urls': cleaned[:10]}
+
+                preview = {}
+                for name, regex, desc in URL_EXCLUSION_PATTERNS:
+                    matching = [str(u) for u in unique_urls if re.search(regex, str(u), re.IGNORECASE)]
+                    preview[name] = {'description': desc, 'count': len(matching), 'sample_urls': matching[:20]}
+
                 self.root.after(0, lambda: self._show_pattern_dialog_ui(output_path, preview, anchor_preview, row_count))
             except Exception as e:
                 self.root.after(0, lambda: self._pattern_load_error(str(e)))
@@ -3701,46 +3620,69 @@ class TaxonomyMapperGUI:
             base, ext = os.path.splitext(input_path)
             output_path = f"{base}_filtered{ext}"
 
-            original_stdout = sys.stdout
+            df = pd.read_excel(input_path)
+            rows_before = len(df)
+            self.log(f"Loaded {rows_before} rows from {os.path.basename(input_path)}")
 
-            class LogWriter:
-                def __init__(self, log_func):
-                    self.log_func = log_func
-                def write(self, text):
-                    if text.strip():
-                        self.log_func(text.strip())
-                def flush(self):
-                    pass
+            # Strip URL anchors (#fragments) — keep rows, just clean the URL
+            anchor_regex = URL_ANCHOR_CLEANUP_PATTERNS[0][1]
+            original_urls = df['URL'].apply(str)
+            df['URL'] = df['URL'].apply(lambda u: re.sub(anchor_regex, '', str(u), flags=re.IGNORECASE))
+            urls_cleaned = int((df['URL'] != original_urls).sum())
+            if urls_cleaned:
+                self.log(f"Cleaned {urls_cleaned} URLs (stripped anchors)")
 
-            sys.stdout = LogWriter(self.log)
+            # Apply URL exclusion patterns
+            remove_mask = pd.Series(False, index=df.index)
+            remove_reasons = pd.Series('', index=df.index)
+            pattern_dict = {name: (regex, desc) for name, regex, desc in URL_EXCLUSION_PATTERNS}
+            for name in (enabled_patterns or []):
+                if name in pattern_dict:
+                    regex, desc = pattern_dict[name]
+                    matched = df['URL'].apply(lambda u: bool(re.search(regex, str(u), re.IGNORECASE)))
+                    new_matches = matched & ~remove_mask
+                    remove_reasons[new_matches] = f'URL pattern: {desc}'
+                    remove_mask |= matched
+                    count = int(new_matches.sum())
+                    if count:
+                        self.log(f"  {desc}: {count} rows removed")
 
-            config = {
-                'max_rank': self.top_n.get(),
-                'frequency_threshold': 0.20,
-                'remove_low_confidence': False,
-            }
+            # Apply custom patterns
+            for pattern in (custom_patterns or []):
+                matched = df['URL'].apply(lambda u: pattern.lower() in str(u).lower())
+                new_matches = matched & ~remove_mask
+                remove_reasons[new_matches] = f'Custom pattern: contains "{pattern}"'
+                remove_mask |= matched
+                count = int(new_matches.sum())
+                if count:
+                    self.log(f"  Custom '{pattern}': {count} rows removed")
 
-            pp = PostProcessor(config)
-            pp.load(input_path)
-            pp.run_all(url_patterns=enabled_patterns, custom_patterns=custom_patterns)
-            pp.print_stats()
-            pp.export(output_path)
+            df_kept = df[~remove_mask].copy()
+            df_removed = df[remove_mask].copy()
+            if not df_removed.empty:
+                df_removed['Filter_Reason'] = remove_reasons[remove_mask].values
 
-            sys.stdout = original_stdout
+            rows_after = len(df_kept)
+            rows_removed = len(df_removed)
+            pct = rows_removed / rows_before * 100 if rows_before else 0
+            self.log(f"Rows before: {rows_before} | After: {rows_after} | Removed: {rows_removed} ({pct:.1f}%)")
 
-            urls_cleaned = pp.stats.get('urls_cleaned', 0)
+            with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+                df_kept.to_excel(writer, sheet_name='Filtered', index=False)
+                if not df_removed.empty:
+                    df_removed.to_excel(writer, sheet_name='Removed', index=False)
+
             cleaned_msg = f"\nURLs cleaned (anchors stripped): {urls_cleaned}" if urls_cleaned else ""
             self.root.after(0, lambda: messagebox.showinfo(
                 "URL Pattern Filter Complete",
                 f"Filtered output saved to:\n{output_path}\n\n"
-                f"Rows before: {pp.stats.get('rows_before', '?')}\n"
-                f"Rows after: {pp.stats.get('rows_after', '?')}\n"
-                f"Removed: {pp.stats.get('rows_removed', '?')} ({pp.stats.get('pct_removed', 0):.1f}%)"
+                f"Rows before: {rows_before}\n"
+                f"Rows after: {rows_after}\n"
+                f"Removed: {rows_removed} ({pct:.1f}%)"
                 f"{cleaned_msg}"
             ))
 
         except Exception as e:
-            sys.stdout = sys.__stdout__
             self.log(f"URL pattern filter error: {str(e)}")
             self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
 
@@ -6498,7 +6440,7 @@ class TaxonomyMapperGUI:
     def generate_synonym_report(self):
         """Generate proposed synonyms report from semantic keywords vs taxonomy topics."""
         from collections import Counter, defaultdict
-        from fuzzywuzzy import fuzz
+        from rapidfuzz import fuzz
 
         # 1. Validate files are selected
         semantic_file = self.semantic_file.get()
@@ -6807,130 +6749,272 @@ class TaxonomyMapperGUI:
             fg=self.colors['text_light']
         ).pack(pady=(10, 20))
 
-    def _show_keyword_rec_apply_dialog(self, output_file, total_recs, high_priority_count, apply_df):
-        """Show dialog offering to apply HIGH priority keyword recommendations as synonyms."""
+    def _show_synonym_review_dialog(self, rec_df, near_misses_dict, output_file):
+        """Interactive post-run synonym review dialog with row-by-row approve/dismiss."""
+        import webbrowser
+
         dialog = tk.Toplevel(self.root)
-        dialog.title("Keyword Recommendations")
-        dialog.geometry("520x400")
+        country = self.selected_country.get()
+        dialog.title(f"Post-Run Synonym Review — {country}")
+        dialog.geometry("900x600")
         dialog.configure(bg=self.colors['background'])
         dialog.transient(self.root)
         dialog.grab_set()
 
         # Center dialog
         dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (260)
-        y = (dialog.winfo_screenheight() // 2) - (200)
+        x = (dialog.winfo_screenwidth() // 2) - 450
+        y = (dialog.winfo_screenheight() // 2) - 300
         dialog.geometry(f"+{x}+{y}")
 
-        # Header
-        tk.Label(
-            dialog,
-            text="Keyword Recommendations Generated",
-            font=('Segoe UI', 14, 'bold'),
+        # ── Header ────────────────────────────────────────────────────────────
+        header_frame = tk.Frame(dialog, bg=self.colors['background'])
+        header_frame.pack(fill='x', padx=15, pady=(12, 4))
+
+        total_count = len(rec_df)
+        header_label = tk.Label(
+            header_frame,
+            text=f"{total_count} near-miss keywords need review",
+            font=('Segoe UI', 13, 'bold'),
             bg=self.colors['background'],
             fg=self.colors['text']
-        ).pack(pady=(20, 10))
-
-        # Summary stats
-        stats_frame = tk.Frame(dialog, bg=self.colors['card'], relief='solid', bd=1)
-        stats_frame.pack(fill='x', padx=20, pady=10)
-
-        topics_affected = apply_df['Topic'].nunique() if len(apply_df) > 0 else 0
-        stats_text = (
-            f"Total unmatched keywords analyzed: {total_recs}\n"
-            f"HIGH priority (add as synonym): {high_priority_count}\n"
-            f"Topics affected: {topics_affected}"
         )
-        tk.Label(
-            stats_frame,
-            text=stats_text,
-            font=('Consolas', 10),
-            bg=self.colors['card'],
-            fg=self.colors['text'],
-            justify='left'
-        ).pack(padx=15, pady=15)
+        header_label.pack(side='left')
 
-        # Info about what "Apply" does
-        info_text = (
-            f"Clicking 'Apply HIGH Priority Synonyms' will add {high_priority_count} synonyms\n"
-            f"to {topics_affected} topics in synonyms.json for {self.selected_country.get()}.\n\n"
-            f"The full recommendations are in the 'Keyword Recommendations'\n"
-            f"sheet of the output file."
-        )
         tk.Label(
-            dialog,
-            text=info_text,
+            header_frame,
+            text="  Approve adds to synonyms.json · Dismiss removes from list",
             font=('Segoe UI', 9),
             bg=self.colors['background'],
-            fg=self.colors['text_light'],
-            justify='center'
-        ).pack(pady=10)
+            fg=self.colors['text_light']
+        ).pack(side='left', pady=(3, 0))
 
-        # Buttons
-        btn_frame = tk.Frame(dialog, bg=self.colors['background'])
-        btn_frame.pack(pady=20)
+        # ── Treeview ──────────────────────────────────────────────────────────
+        tree_frame = tk.Frame(dialog, bg=self.colors['background'])
+        tree_frame.pack(fill='both', expand=True, padx=15, pady=4)
 
-        def apply_high_priority():
-            dialog.destroy()
-            self._apply_synonyms_batch(apply_df)
+        tree_scroll_y = tk.Scrollbar(tree_frame, orient='vertical')
+        tree_scroll_y.pack(side='right', fill='y')
+        tree_scroll_x = tk.Scrollbar(tree_frame, orient='horizontal')
+        tree_scroll_x.pack(side='bottom', fill='x')
 
+        columns = ('select', 'priority', 'keyword', 'score', 'freq', 'topic', 'product_seg')
+        tree = ttk.Treeview(
+            tree_frame,
+            columns=columns,
+            show='headings',
+            yscrollcommand=tree_scroll_y.set,
+            xscrollcommand=tree_scroll_x.set,
+            selectmode='browse'
+        )
+        col_config = [
+            ('select',      '✓',               40,  'center'),
+            ('priority',    'Priority',         80,  'center'),
+            ('keyword',     'Keyword',         200,  'w'),
+            ('score',       'Score',            60,  'center'),
+            ('freq',        'Freq',             55,  'center'),
+            ('topic',       'Suggested Topic', 200,  'w'),
+            ('product_seg', 'Product / Segment',200, 'w'),
+        ]
+        for col, heading, width, anchor in col_config:
+            tree.heading(col, text=heading)
+            tree.column(col, width=width, anchor=anchor, minwidth=max(40, width - 20))
+
+        tree.tag_configure('HIGH',   foreground='#16a34a')
+        tree.tag_configure('MEDIUM', foreground='#ca8a04')
+
+        tree.pack(side='left', fill='both', expand=True)
+        tree_scroll_y.config(command=tree.yview)
+        tree_scroll_x.config(command=tree.xview)
+
+        # Populate rows — iid = keyword string (unique per keyword in rec_df)
+        for _, row in rec_df.iterrows():
+            kw       = str(row.get('Keyword', ''))
+            priority = str(row.get('Priority', ''))
+            score    = row.get('Score', '')
+            freq     = row.get('Frequency', '')
+            topic    = str(row.get('Topic', ''))
+            product  = str(row.get('Product', ''))
+            segment  = str(row.get('Segment', ''))
+            prod_seg = f"{product} / {segment}" if segment else product
+            score_str = f"{int(score)}%" if score != '' else ''
+            tree.insert('', 'end', iid=kw, values=('', priority, kw, score_str, freq, topic, prod_seg),
+                        tags=(priority,))
+
+        # Selection tracking
+        _selected = set()
+
+        def on_tree_click(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                return
+            if item in _selected:
+                _selected.discard(item)
+                vals = list(tree.item(item)['values'])
+                vals[0] = ''
+                tree.item(item, values=vals)
+            else:
+                _selected.add(item)
+                vals = list(tree.item(item)['values'])
+                vals[0] = '✓'
+                tree.item(item, values=vals)
+            _update_status()
+
+        tree.bind('<ButtonRelease-1>', on_tree_click)
+
+        # ── Action bar ────────────────────────────────────────────────────────
+        action_frame = tk.Frame(dialog, bg=self.colors['card'], relief='solid', bd=1)
+        action_frame.pack(fill='x', padx=0, pady=0)
+        action_inner = tk.Frame(action_frame, bg=self.colors['card'])
+        action_inner.pack(fill='x', padx=15, pady=10)
+
+        # Left side: Select All / Deselect All / count / Show URLs
+        def select_all():
+            for item in tree.get_children():
+                _selected.add(item)
+                vals = list(tree.item(item)['values'])
+                vals[0] = '✓'
+                tree.item(item, values=vals)
+            _update_status()
+
+        def deselect_all():
+            for item in tree.get_children():
+                _selected.discard(item)
+                vals = list(tree.item(item)['values'])
+                vals[0] = ''
+                tree.item(item, values=vals)
+            _update_status()
+
+        tk.Button(
+            action_inner, text="Select All", command=select_all,
+            font=('Segoe UI', 9), bg='#6b7280', fg='white',
+            relief='flat', padx=10, cursor='hand2'
+        ).pack(side='left', padx=(0, 4))
+
+        tk.Button(
+            action_inner, text="Deselect All", command=deselect_all,
+            font=('Segoe UI', 9), bg='#6b7280', fg='white',
+            relief='flat', padx=10, cursor='hand2'
+        ).pack(side='left', padx=(0, 12))
+
+        count_label = tk.Label(
+            action_inner, text="0 selected",
+            font=('Segoe UI', 10), bg=self.colors['card'], fg=self.colors['text']
+        )
+        count_label.pack(side='left', padx=(0, 12))
+
+        def show_urls():
+            if len(_selected) != 1:
+                messagebox.showinfo("Show URLs", "Select exactly one keyword to view its sample URLs.",
+                                    parent=dialog)
+                return
+            kw = next(iter(_selected))
+            nm = near_misses_dict.get(kw.lower(), {})
+            urls = nm.get('urls', [])
+            if not urls:
+                messagebox.showinfo("Show URLs", f"No sample URLs found for: {kw}", parent=dialog)
+                return
+            # Open small popup
+            url_win = tk.Toplevel(dialog)
+            url_win.title(f"Sample URLs — {kw}")
+            url_win.geometry("480x280")
+            url_win.configure(bg=self.colors['background'])
+            url_win.transient(dialog)
+            url_win.grab_set()
+            url_win.update_idletasks()
+            ux = (url_win.winfo_screenwidth() // 2) - 240
+            uy = (url_win.winfo_screenheight() // 2) - 140
+            url_win.geometry(f"+{ux}+{uy}")
+
+            tk.Label(url_win, text=f"Sample URLs for: {kw}",
+                     font=('Segoe UI', 10, 'bold'),
+                     bg=self.colors['background'], fg=self.colors['text']).pack(pady=(12, 6))
+
+            for url in urls[:5]:
+                lbl = tk.Label(url_win, text=url, font=('Segoe UI', 8),
+                               bg=self.colors['background'], fg=self.colors['primary'],
+                               cursor='hand2', wraplength=440, justify='left')
+                lbl.pack(anchor='w', padx=12, pady=2)
+                lbl.bind('<Button-1>', lambda e, u=url: webbrowser.open(u))
+
+            tk.Button(url_win, text="Close", command=url_win.destroy,
+                      font=('Segoe UI', 9), bg='#6b7280', fg='white',
+                      relief='flat', padx=12, cursor='hand2').pack(pady=(10, 12))
+
+        tk.Button(
+            action_inner, text="Show URLs", command=show_urls,
+            font=('Segoe UI', 9), bg=self.colors['primary'], fg='white',
+            relief='flat', padx=10, cursor='hand2'
+        ).pack(side='left')
+
+        # Right side: Open in Excel / Dismiss / Approve Selected
         def open_in_excel():
-            dialog.destroy()
             try:
                 os.startfile(output_file)
             except Exception as e:
                 self.log(f"Could not open file: {e}")
 
-        # Apply button (green)
-        tk.Button(
-            btn_frame,
-            text=f"Apply HIGH Priority Synonyms ({high_priority_count})",
-            command=apply_high_priority,
-            font=('Segoe UI', 10, 'bold'),
-            bg=self.colors['secondary'],
-            fg='white',
-            relief='flat',
-            padx=15,
-            pady=8,
-            cursor='hand2'
-        ).pack(side='left', padx=5)
+        def dismiss_selected():
+            if not _selected:
+                return
+            for kw in list(_selected):
+                if tree.exists(kw):
+                    tree.delete(kw)
+            _selected.clear()
+            _update_status()
 
-        # Review in Excel button (blue)
-        tk.Button(
-            btn_frame,
-            text="Review in Excel",
-            command=open_in_excel,
-            font=('Segoe UI', 10, 'bold'),
-            bg=self.colors['primary'],
-            fg='white',
-            relief='flat',
-            padx=15,
-            pady=8,
-            cursor='hand2'
-        ).pack(side='left', padx=5)
+        def approve_selected():
+            if not _selected:
+                return
+            rows = []
+            for kw in list(_selected):
+                if not tree.exists(kw):
+                    continue
+                vals = tree.item(kw)['values']
+                # vals: (✓, priority, keyword, score, freq, topic, product_seg)
+                rows.append({'Topic': vals[5], 'Proposed_Synonym': vals[2]})
+            if not rows:
+                return
+            import pandas as pd
+            apply_df = pd.DataFrame(rows)
+            self._apply_synonyms_batch(apply_df)
+            for kw in list(_selected):
+                if tree.exists(kw):
+                    tree.delete(kw)
+            _selected.clear()
+            _update_status()
 
-        # Skip button (gray)
         tk.Button(
-            btn_frame,
-            text="Skip",
-            command=dialog.destroy,
-            font=('Segoe UI', 10),
-            bg='#6b7280',
-            fg='white',
-            relief='flat',
-            padx=15,
-            pady=8,
-            cursor='hand2'
-        ).pack(side='left', padx=5)
+            action_inner, text="Open in Excel", command=open_in_excel,
+            font=('Segoe UI', 9), bg=self.colors['primary'], fg='white',
+            relief='flat', padx=10, cursor='hand2'
+        ).pack(side='right', padx=(6, 0))
 
-        # File path info
-        tk.Label(
-            dialog,
-            text=f"Output: {os.path.basename(output_file)}",
-            font=('Segoe UI', 8),
-            bg=self.colors['background'],
-            fg=self.colors['text_light']
-        ).pack(pady=(10, 20))
+        dismiss_btn = tk.Button(
+            action_inner, text="✗ Dismiss", command=dismiss_selected,
+            font=('Segoe UI', 9), bg='#6b7280', fg='white',
+            relief='flat', padx=10, cursor='hand2'
+        )
+        dismiss_btn.pack(side='right', padx=(6, 0))
+
+        approve_btn = tk.Button(
+            action_inner, text="✓ Approve Selected", command=approve_selected,
+            font=('Segoe UI', 10, 'bold'), bg=self.colors['secondary'], fg='white',
+            relief='flat', padx=14, pady=4, cursor='hand2'
+        )
+        approve_btn.pack(side='right', padx=(6, 0))
+
+        def _update_status():
+            n = len(_selected)
+            remaining = len(tree.get_children())
+            count_label.config(text=f"{n} selected")
+            # Update header count
+            header_label.config(text=f"{remaining} near-miss keywords need review")
+            state = 'normal' if n > 0 else 'disabled'
+            approve_btn.config(state=state)
+            dismiss_btn.config(state=state)
+
+        _update_status()
 
     def _apply_synonyms_batch(self, synonyms_df):
         """
@@ -7026,7 +7110,7 @@ class TaxonomyMapperGUI:
 
     def generate_quality_report(self):
         """Generate match quality report with similarity scores and rankings per URL."""
-        from fuzzywuzzy import fuzz
+        from rapidfuzz import fuzz
         from collections import defaultdict
 
         # 1. Validate files are selected
@@ -7324,7 +7408,7 @@ class TaxonomyMapperGUI:
 
     def generate_unmapped_report(self):
         """Generate diagnostic report explaining why URLs are unmapped."""
-        from fuzzywuzzy import fuzz
+        from rapidfuzz import fuzz
         from collections import Counter, defaultdict
 
         # 1. Validate files are selected
@@ -7902,7 +7986,7 @@ class TaxonomyMapperGUI:
         """Generate comprehensive taxonomy gap analysis report."""
         from collections import Counter, defaultdict
         from pathlib import Path
-        from fuzzywuzzy import fuzz
+        from rapidfuzz import fuzz
         import re
 
         # Validate inputs
@@ -7953,6 +8037,12 @@ class TaxonomyMapperGUI:
                 self.log(f"Loading semantic file: {Path(semantic_file).name}")
                 df_semantic = pd.read_excel(semantic_file)
                 self.log(f"  Loaded: {len(df_semantic)} rows")
+
+            # Derive thresholds from main matcher threshold (mirrors taxonomy_matcher.py logic)
+            _threshold = self.threshold.get() or 80
+            _syn_score_threshold = max(50, _threshold - 20)
+            _high_threshold = _threshold - 5
+            _med_threshold = _threshold - 15
 
             # Helper function to sanitize cell values
             import math
@@ -8070,6 +8160,58 @@ class TaxonomyMapperGUI:
                 {'Metric': 'Finding 3', 'Value': f'Match rate is {match_rate}%'},
             ])
 
+            # Append noise-filtering note to Executive Summary
+            _noise_rows = pd.DataFrame([
+                {'Metric': '', 'Value': ''},
+                {'Metric': '=== KEYWORD NOISE FILTERING ===', 'Value': ''},
+                {'Metric': 'Note', 'Value': 'The phrases below are filtered by ContentKeywordExtractor (NOISE_PHRASE_STARTS) before keywords reach this report. Their absence from recommendations is intentional, not a gap.'},
+                {'Metric': '', 'Value': ''},
+                {'Metric': 'Dutch UI Chrome — BE/NL Salesforce community sites', 'Value': 'artikel vind, artikel lees, artikel legt, artikel leggen, alle artikelen, mijn artikelen, nieuw artikel, zoek artikel'},
+                {'Metric': 'Why filtered', 'Value': "Every page on the community site is an article; these Dutch nav-action phrases leak from UI chrome into every page's extracted text. Without filtering they generated ~614 false near-miss recommendations per run (Artikelen topic)."},
+                {'Metric': '', 'Value': ''},
+                {'Metric': 'English CMS Generic Language — all countries', 'Value': 'enabling, allowing, providing, ensuring, facilitating, managing, creating, updating, configuring, displaying, showing, accessing, visiting, starting, guidance on, effectively, automatically, properly, correctly'},
+                {'Metric': 'Why filtered', 'Value': 'Gerund-form phrases that describe page actions rather than taxonomy topics. Appear across all CMS help sites and pollute synonym recommendations.'},
+                {'Metric': '', 'Value': ''},
+                {'Metric': 'To add new noise phrases', 'Value': 'Edit NOISE_PHRASE_STARTS in content_keyword_extractor.py (~line 121).'},
+            ])
+            df_summary = pd.concat([df_summary, _noise_rows], ignore_index=True)
+
+            # === PROGRESS TRACKING ===
+            _country_code = self.selected_country.get()
+            _json_path = Path(self.country_config.project_root) / 'gap_analysis_progress.json'
+            _progress_entry = {
+                'run_datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'country_code': _country_code,
+                'match_rate_pct': match_rate,
+                'total_urls': int(total_urls),
+                'mapped_urls': int(total_urls - unmapped_urls),
+                'unmapped_urls': int(unmapped_urls),
+                'never_matched_topics_count': never_matched_count,
+                'phantom_topics_count': phantom_count,
+                'total_taxonomy_topics': len(all_taxonomy_topics),
+                'threshold_used': _threshold,
+            }
+            _progress_history = []
+            try:
+                if _json_path.exists():
+                    with open(_json_path, 'r', encoding='utf-8') as _f:
+                        _loaded = json.load(_f)
+                    if isinstance(_loaded, list):
+                        _progress_history = _loaded
+            except (json.JSONDecodeError, OSError, ValueError):
+                self.log("  Warning: Progress log corrupted — starting fresh")
+            _progress_history.append(_progress_entry)
+            try:
+                with open(_json_path, 'w', encoding='utf-8') as _f:
+                    json.dump(_progress_history, _f, indent=2, ensure_ascii=False)
+                self.log(f"  Progress log updated: {len(_progress_history)} total runs recorded")
+            except OSError as _e:
+                self.log(f"  Warning: Could not write progress log: {_e}")
+            _progress_cols = ['run_datetime', 'country_code', 'match_rate_pct', 'total_urls',
+                              'mapped_urls', 'unmapped_urls', 'never_matched_topics_count',
+                              'phantom_topics_count', 'total_taxonomy_topics', 'threshold_used']
+            df_progress = pd.DataFrame(_progress_history).reindex(columns=_progress_cols)
+
             # === SHEET 2: PHANTOM TOPICS ===
             self.log("Identifying Phantom Topics...")
             phantom_data = []
@@ -8142,7 +8284,7 @@ class TaxonomyMapperGUI:
                     if freq < 3:
                         continue
                     score = max(fuzz.ratio(topic, kw), fuzz.partial_ratio(topic, kw))
-                    if score >= 60:
+                    if score >= _syn_score_threshold:
                         urls = keyword_urls.get(kw, [])
                         suggested.append((kw, freq, score, urls))
                 suggested.sort(key=lambda x: (-x[2], -x[1]))
@@ -8150,7 +8292,7 @@ class TaxonomyMapperGUI:
                 if suggested:
                     kw_str = ', '.join([f"{kw} ({freq})" for kw, freq, _, _ in suggested[:5]])
                     best_score = suggested[0][2]
-                    priority = 'HIGH' if best_score >= 75 else 'MEDIUM' if best_score >= 65 else 'LOW'
+                    priority = 'HIGH' if best_score >= _high_threshold else 'MEDIUM' if best_score >= _med_threshold else 'LOW'
 
                     # Collect sample URLs from top suggested keywords
                     sample_urls = []
@@ -8236,6 +8378,7 @@ class TaxonomyMapperGUI:
                 sanitize_dataframe(df_synonym_recs).to_excel(writer, sheet_name='Synonym Recommendations', index=False)
                 sanitize_dataframe(df_products).to_excel(writer, sheet_name='Product Breakdown', index=False)
                 sanitize_dataframe(df_actions).to_excel(writer, sheet_name='Action Items', index=False)
+                sanitize_dataframe(df_progress).to_excel(writer, sheet_name='Progress', index=False)
 
                 # Apply formatting
                 try:
@@ -8267,7 +8410,8 @@ class TaxonomyMapperGUI:
                 f"4. Taxonomy Comparison\n"
                 f"5. Synonym Recommendations ({len(df_synonym_recs)})\n"
                 f"6. Product Breakdown ({len(df_products)})\n"
-                f"7. Action Items ({len(df_actions)})"
+                f"7. Action Items ({len(df_actions)})\n"
+                f"8. Progress ({len(_progress_history)} runs tracked)"
             )
 
         except Exception as e:
@@ -8316,10 +8460,14 @@ class TaxonomyMapperGUI:
 
         # Get filter values
         priority_filter = self.assistant_priority.get()
+        main_threshold = self.threshold.get()
         try:
             min_score = int(self.assistant_min_score.get())
         except ValueError:
-            min_score = 85
+            min_score = main_threshold
+        # Priority thresholds relative to main matcher threshold (mirrors taxonomy_matcher.py logic)
+        high_threshold = main_threshold - 5
+        med_threshold = main_threshold - 15
         new_only = self.assistant_new_only.get()
         topic_scope = self.assistant_topic_scope.get()  # "Never-Matched Only" or "All Topics"
         all_topics_mode = (topic_scope == "All Topics")
@@ -8548,10 +8696,10 @@ class TaxonomyMapperGUI:
                         match_above_score += 1
                         freq = url_keywords[kw]
 
-                        # Determine priority
-                        if score >= 85 and freq >= 10:
+                        # Determine priority (relative to main matcher threshold, mirrors taxonomy_matcher.py)
+                        if score >= high_threshold and freq >= 10:
                             priority = 'HIGH'
-                        elif score >= 75 and freq >= 5:
+                        elif score >= med_threshold and freq >= 5:
                             priority = 'MEDIUM'
                         else:
                             priority = 'LOW'
@@ -8665,9 +8813,10 @@ class TaxonomyMapperGUI:
                         sem_above_score += 1
                         freq = sem_keyword_counts[kw]
 
-                        if score >= 85 and freq >= 50:
+                        # Determine priority (relative to main matcher threshold, mirrors taxonomy_matcher.py)
+                        if score >= high_threshold and freq >= 50:
                             priority = 'HIGH'
-                        elif score >= 75:
+                        elif score >= med_threshold:
                             priority = 'MEDIUM'
                         else:
                             priority = 'LOW'
