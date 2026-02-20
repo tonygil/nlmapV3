@@ -4,9 +4,48 @@ This file provides guidance to Claude Code when working in this repository.
 
 **Companion files** (read on demand — not auto-loaded):
 - `CAMPAIGN_BE.md` — BE 80% campaign: full unmapped breakdown, root causes, fix tables
-- `FEATURES_GUIDE.md` — Keyword Recommendations sheet, Reports, Synonym Assistant, Post-Processing, Debug Mode, Gap Analysis Report
+- `FEATURES_GUIDE.md` — Keyword Recommendations sheet, Reports, Synonym Assistant, Debug Mode, Gap Analysis Report
 - `ARCHITECTURE_DETAIL.md` — Performance optimizations, Strict Content Matcher (deprecated), Content-Based Topic Matcher
 - `SALESFORCE_WORKFLOW.md` — Salesforce CSV workflow (Method A/B), Data_Categories__c, community URLs, NLUrl internals
+
+---
+
+## Future Investigation
+
+### Mapping Matcher Advisor Agent 💡 IDEA
+
+The current improvement process is highly iterative and manual:
+1. Run matcher → check match rate → identify unmapped reasons → edit synonyms/category_mapping/noise phrases → re-run → repeat
+
+This would benefit from an **AI advisor agent** that guides the user through the full optimisation loop automatically.
+
+**What it would do:**
+- Ingest the gap analysis report + unmapped output file
+- Diagnose unmapped reasons by category (product filter / no match / no keywords / noise)
+- Prioritise fixes by estimated URL yield (biggest wins first)
+- Suggest specific edits: exact synonym pairs, category_mapping entries, noise phrases
+- Validate suggestions against article content (Summary/Description) before proposing
+- Apply fixes (patch files) and trigger a re-run, then report delta
+- Repeat until target match rate reached or no further gains possible
+
+**Key inputs the agent would need:**
+- `taxonomy_match_{CC}.xlsx` (Results sheet — unmapped rows)
+- `TAXONOMY_GAP_ANALYSIS_REPORT_{CC}.xlsx` (near-misses, never-matched topics)
+- `countries/{CC}/synonyms.json`, `category_mapping.json`
+- `taxonomy.xlsx` (full topic list)
+- Target match rate (e.g. 80%)
+
+**Key tools the agent would use:**
+- `apply_synonym_patch.py` — apply synonym changes
+- `apply_url_exclusions.py` — remove noise URLs from denominator
+- `unmapped_review.html` exports — category fixes, synonym patches, noise phrases
+- Gap Analysis report generation
+
+**Design considerations:**
+- Should work per-country (BE, GB, NL, SE have different languages/taxonomies)
+- Needs to distinguish between fixable unmapped (synonyms, product mapping) and genuinely unmappable (off-topic content)
+- Could run as a Claude Code sub-agent or as a standalone CLI tool
+- The iterative human-in-the-loop aspect (confirming suggestions) is important — agent should show evidence before applying
 
 ---
 
@@ -14,12 +53,12 @@ This file provides guidance to Claude Code when working in this repository.
 
 ### BE Match Rate Campaign 🔄 IN PROGRESS (target: 80%)
 
-**Current state** (19 Feb 2026, run 10:53): **58.4%** per unique URL · 1,051 / 1,799 mapped · 748 unmapped
+**Current state** (20 Feb 2026, run 11:58): **68.1%** per unique URL · 1,210 / 1,777 mapped · 567 unmapped · need 212 more for 80%
 
 **Remaining ⬜ actions:**
-- ⬜ Add `'artikel '` + stopword pairs (`'van een'`, `'bij het'`, `'van het'`) to `NOISE_PHRASE_STARTS` in `content_keyword_extractor.py` (~80–120 URLs)
-- ⬜ Add `Adsolut_KMO_beheer` → `"Adsolut boekhouding"` in `countries/BE/category_mapping.json` (~60 URLs)
+- ⬜ Add `Adsolut_KMO_beheer` → `"Adsolut boekhouding"` in `countries/BE/category_mapping.json` (~60 URLs, 118 product issues remain)
 - ⬜ Exclude Salesforce CRM tags (`Customers`, `Administration`, `Regular_services`) from category_mapping (~18 off denominator)
+- ⬜ Add `'artikel '` + stopword pairs (`'van een'`, `'bij het'`, `'van het'`) to `NOISE_PHRASE_STARTS` in `content_keyword_extractor.py` (~80–120 URLs)
 - ⬜ Add OSS aangifte / Licenties / Account aanmaken synonyms to `countries/BE/synonyms.json` (~70 URLs)
 - ⬜ Run `unmapped_review.html` triage for remaining unmapped
 
@@ -90,8 +129,8 @@ build.bat
 
 Edit the top of `taxonomy_matcher_gui.py`:
 ```python
-VERSION = "3.26"           # Increment for each release
-VERSION_DATE = "2026-02-19"    # Update to release date
+VERSION = "3.28"           # Increment for each release
+VERSION_DATE = "2026-02-20"    # Update to release date
 VERSION_NOTES = "Short description of change"
 ```
 
@@ -103,6 +142,8 @@ The version displays in the window title and About tab.
 
 | Version | Date | Key Changes |
 |---------|------|-------------|
+| 3.28 | 2026-02-20 | Remove `post_processor.py`; URL Pattern Filter now runs directly in GUI (anchor strip + URL pattern removal only, no rank trim side effects). |
+| 3.27 | 2026-02-20 | Fix NaN/empty semantic product treated as wildcard in fast-path. |
 | 3.26 | 2026-02-19 | `Suggested_Product` column on "Product filter excluded" unmapped rows — best-scoring unfiltered topic's product. `unmapped_review.html` Fix Product panel pre-populated from this value. |
 | 3.25 | 2026-02-19 | **Critical BE fix**: `_product_alias_map` bypassed in `find_topic_matches()` fast-path — aliases like "Adsolut boekhouden" returned `[]`, silently unmapping ~641 articles. Fix: resolve alias before `_product_lookup` call. |
 | 3.24 | 2026-02-18 | Empty/NaN product treated as wildcard; `'dit artikel'`, `'raadpleeg'`, `'van artikelen'`, `'een overzicht van'` added to `NOISE_PHRASE_STARTS`; 40 synonyms added to BE. |
@@ -114,7 +155,7 @@ The version displays in the window title and About tab.
 | 3.18 | 2026-02-17 | `_URL_NAV_STOPWORDS` / `URL_NAV_STOPWORDS` suppress Salesforce community path words from URL keyword extraction. |
 | 3.17 | 2026-02-17 | Keyword Recommendations sheet: Priority-first columns, colour coding, frozen header, all URLs shown (up to 10). |
 
-**Current stable version:** 3.26 · ❌ Strict Match hidden (v3.12+) — poor output quality, use crawler keywords instead.
+**Current stable version:** 3.28 · ❌ Strict Match hidden (v3.12+) — poor output quality, use crawler keywords instead.
 
 ---
 
@@ -134,7 +175,6 @@ The version displays in the window title and About tab.
 | `generate_topic_recommendations.py` | Topic gap analysis report (8 sheets). See `FEATURES_GUIDE.md` |
 | `generate_taxonomy_gap_analysis.py` | Taxonomy gap analysis: phantom/never-matched topics, synonym recommendations (8 sheets). See `FEATURES_GUIDE.md` |
 | `remove_top_level_pages.py` | Filters MindTouch "Topic Hierarchy" nav pages (GB only). See `FEATURES_GUIDE.md` |
-| `post_processor.py` | Output quality filters + URL pattern filtering (GB). See `FEATURES_GUIDE.md` |
 | `country_config.py` | Loads config.yaml, resolves country-specific paths |
 | `config.yaml` | Country registry & settings |
 | `synonym_review.html` | Standalone browser tool — reads Keyword Recommendations sheet; exports `synonym_patch_{CC}_{date}.json` |
