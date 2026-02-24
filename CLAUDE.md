@@ -1,51 +1,14 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code when working in this repository.
 
 **Companion files** (read on demand — not auto-loaded):
 - `CAMPAIGN_BE.md` — BE 80% campaign: full unmapped breakdown, root causes, fix tables
 - `FEATURES_GUIDE.md` — Keyword Recommendations sheet, Reports, Synonym Assistant, Debug Mode, Gap Analysis Report
-- `ARCHITECTURE_DETAIL.md` — Performance optimizations, Strict Content Matcher (deprecated), Content-Based Topic Matcher
+- `ARCHITECTURE_DETAIL.md` — Performance optimizations, Strict Content Matcher (deprecated), Content-Based Topic Matcher, Critical Bug Fixes
 - `SALESFORCE_WORKFLOW.md` — Salesforce CSV workflow (Method A/B), Data_Categories__c, community URLs, NLUrl internals
-
----
-
-## Future Investigation
-
-### Mapping Matcher Advisor Agent 💡 IDEA
-
-The current improvement process is highly iterative and manual:
-1. Run matcher → check match rate → identify unmapped reasons → edit synonyms/category_mapping/noise phrases → re-run → repeat
-
-This would benefit from an **AI advisor agent** that guides the user through the full optimisation loop automatically.
-
-**What it would do:**
-- Ingest the gap analysis report + unmapped output file
-- Diagnose unmapped reasons by category (product filter / no match / no keywords / noise)
-- Prioritise fixes by estimated URL yield (biggest wins first)
-- Suggest specific edits: exact synonym pairs, category_mapping entries, noise phrases
-- Validate suggestions against article content (Summary/Description) before proposing
-- Apply fixes (patch files) and trigger a re-run, then report delta
-- Repeat until target match rate reached or no further gains possible
-
-**Key inputs the agent would need:**
-- `taxonomy_match_{CC}.xlsx` (Results sheet — unmapped rows)
-- `TAXONOMY_GAP_ANALYSIS_REPORT_{CC}.xlsx` (near-misses, never-matched topics)
-- `countries/{CC}/synonyms.json`, `category_mapping.json`
-- `taxonomy.xlsx` (full topic list)
-- Target match rate (e.g. 80%)
-
-**Key tools the agent would use:**
-- `apply_synonym_patch.py` — apply synonym changes
-- `apply_url_exclusions.py` — remove noise URLs from denominator
-- `unmapped_review.html` exports — category fixes, synonym patches, noise phrases
-- Gap Analysis report generation
-
-**Design considerations:**
-- Should work per-country (BE, GB, NL, SE have different languages/taxonomies)
-- Needs to distinguish between fixable unmapped (synonyms, product mapping) and genuinely unmappable (off-topic content)
-- Could run as a Claude Code sub-agent or as a standalone CLI tool
-- The iterative human-in-the-loop aspect (confirming suggestions) is important — agent should show evidence before applying
+- `ADVISOR_AGENT_PLAN.md` — AI advisor agent design spec (automates match-rate improvement loop)
+- `CHANGELOG.md` — Full version history
 
 ---
 
@@ -53,19 +16,19 @@ This would benefit from an **AI advisor agent** that guides the user through the
 
 ### BE Match Rate Campaign 🔄 IN PROGRESS (target: 80%)
 
-**Current state** (20 Feb 2026, run 11:58): **68.1%** per unique URL · 1,210 / 1,777 mapped · 567 unmapped · need 212 more for 80%
+**68.1%** · 1,210/1,777 mapped · 567 unmapped · need 212 more (as of 20 Feb 2026)
 
 **Remaining ⬜ actions:**
-- ⬜ Add `Adsolut_KMO_beheer` → `"Adsolut boekhouding"` in `countries/BE/category_mapping.json` (~60 URLs, 118 product issues remain)
+- ⬜ Add `Adsolut_KMO_beheer` → `"Adsolut boekhouding"` in `countries/BE/category_mapping.json` (~60 URLs)
 - ⬜ Exclude Salesforce CRM tags (`Customers`, `Administration`, `Regular_services`) from category_mapping (~18 off denominator)
-- ⬜ Add `'artikel '` + stopword pairs (`'van een'`, `'bij het'`, `'van het'`) to `NOISE_PHRASE_STARTS` in `content_keyword_extractor.py` (~80–120 URLs)
+- ⬜ Add `'artikel '` + stopword pairs (`'van een'`, `'bij het'`, `'van het'`) to `NOISE_PHRASE_STARTS` (~80–120 URLs)
 - ⬜ Add OSS aangifte / Licenties / Account aanmaken synonyms to `countries/BE/synonyms.json` (~70 URLs)
 - ⬜ Run `unmapped_review.html` triage for remaining unmapped
 
 Full breakdown and fix tables: `CAMPAIGN_BE.md`
 
 ### Artikelen disambiguation ⚠️ PARTIALLY RESOLVED
-Navigation noise fix applied (v3.19). Re-run needed to verify near-miss count drops from 614 to <50. Optional: add compound synonyms (`artikelenbeheer`, `artikel aanmaken`) to `countries/BE/synonyms.json`. Details: `CAMPAIGN_BE.md`.
+Nav noise fixed (v3.19). Re-run needed. Optional: add `artikelenbeheer`, `artikel aanmaken` to BE synonyms. Details: `CAMPAIGN_BE.md`.
 
 ---
 
@@ -95,7 +58,7 @@ Navigation noise fix applied (v3.19). Re-run needed to verify near-miss count dr
 
 ## Project Overview
 
-**NL Taxonomy Mapper V3** maps URLs from semantic carriers to taxonomy topics using fuzzy string matching. Multi-country support (NL, SE, BE, GB) with language-specific synonyms and external configuration.
+**Taxonomy Mapper V3** maps URLs from semantic carriers to taxonomy topics using fuzzy string matching. Multi-country support (NL, SE, BE, GB) with language-specific synonyms and external configuration.
 
 **Core Purpose:** Maps keywords (Keyword 1-12 + optional Summary) to hierarchical taxonomy (Product → Domain → Segment → Topic) using fuzzy matching with auto-deduplication.
 
@@ -136,26 +99,15 @@ VERSION_NOTES = "Short description of change"
 
 The version displays in the window title and About tab.
 
----
-
-## Version History (Last 10)
+## Version History (Last 3)
 
 | Version | Date | Key Changes |
 |---------|------|-------------|
-| 3.28 | 2026-02-20 | Remove `post_processor.py`; URL Pattern Filter now runs directly in GUI (anchor strip + URL pattern removal only, no rank trim side effects). |
-| 3.27 | 2026-02-20 | Fix NaN/empty semantic product treated as wildcard in fast-path. |
-| 3.26 | 2026-02-19 | `Suggested_Product` column on "Product filter excluded" unmapped rows — best-scoring unfiltered topic's product. `unmapped_review.html` Fix Product panel pre-populated from this value. |
-| 3.25 | 2026-02-19 | **Critical BE fix**: `_product_alias_map` bypassed in `find_topic_matches()` fast-path — aliases like "Adsolut boekhouden" returned `[]`, silently unmapping ~641 articles. Fix: resolve alias before `_product_lookup` call. |
-| 3.24 | 2026-02-18 | Empty/NaN product treated as wildcard; `'dit artikel'`, `'raadpleeg'`, `'van artikelen'`, `'een overzicht van'` added to `NOISE_PHRASE_STARTS`; 40 synonyms added to BE. |
-| 3.23 | 2026-02-18 | `product_synonyms` in `synonyms.json`; `_product_alias_map` O(1) lookup; BE `category_mapping.json` typo fixed (841 rows unblocked). |
-| 3.22 | 2026-02-18 | `NOISE_PHRASE_STARTS` also applied in `extract_summary_terms()` — Dutch UI phrases were leaking via Summary column. |
-| 3.21 | 2026-02-18 | Top results per URL default 3→6; `save_output()` logs 4-step progress `[1/4]`–`[4/4]`. |
-| 3.20 | 2026-02-18 | Gap Report: synonym thresholds now relative to main threshold; Progress sheet added (`gap_analysis_progress.json`). |
-| 3.19 | 2026-02-18 | Synonym Assistant aligned with matcher threshold; `fuzzywuzzy` → `rapidfuzz` in 4 report functions. |
-| 3.18 | 2026-02-17 | `_URL_NAV_STOPWORDS` / `URL_NAV_STOPWORDS` suppress Salesforce community path words from URL keyword extraction. |
-| 3.17 | 2026-02-17 | Keyword Recommendations sheet: Priority-first columns, colour coding, frozen header, all URLs shown (up to 10). |
+| 3.34 | 2026-02-23 | AI Assistant chat tab (Anthropic-powered); `anthropic>=0.40.0` dependency. |
+| 3.33 | 2026-02-23 | Workflow Guide tab — in-app process guide with nav buttons and decision tree. |
+| 3.28 | 2026-02-20 | Remove `post_processor.py`; URL Pattern Filter runs directly in GUI. |
 
-**Current stable version:** 3.28 · ❌ Strict Match hidden (v3.12+) — poor output quality, use crawler keywords instead.
+**Current stable version:** 3.34 · ❌ Strict Match hidden (v3.12+). Full history: `CHANGELOG.md`.
 
 ---
 
@@ -203,15 +155,13 @@ The version displays in the window title and About tab.
 |--------|---------|
 | `expand_with_synonyms()` | Bidirectional synonym expansion |
 | `should_match_product()` | Product filtering logic |
-| `find_topic_matches(source=)` | Fuzzy matching with `fuzz.ratio()`. `source` param ('title'/'url'/'summary'/'description'/'unknown') adjusts threshold and relevance label (v3.15) |
+| `find_topic_matches(source=)` | Fuzzy matching with `fuzz.ratio()`. `source` param adjusts threshold and relevance label (v3.15) |
 | `extract_summary_terms()` | Extracts 2-3 word phrases from Summary column (no single words) |
 | `extract_keywords()` | Returns `(keywords, sources)` tuple; reads `Source N` columns if present (v3.15) |
 | `consolidate_results()` | Groups by URL-Segment, spreads topics to columns; `top_n` (default 6) limits rows per URL |
 | `save_output()` | Writes Results + Keyword Recommendations sheets; 4-step progress logging (v3.21) |
 | `extract_url_keywords()` | Parses URL path for relevance; filters `_URL_NAV_STOPWORDS` (v3.18) |
 | `calculate_relevance(source=)` | Hybrid score + URL content analysis + source-aware label (v3.15) |
-| `generate_keyword_recommendations()` | Builds `_recommendations_df` from `_keyword_near_misses` |
-| `_format_recommendations_sheet()` | Applies openpyxl colour coding + frozen header to Keyword Recommendations sheet |
 
 ### Data Flow
 
@@ -232,11 +182,7 @@ The version displays in the window title and About tab.
 
 ### Key Architecture Patterns
 
-**Synonym Expansion (Bidirectional with word boundary rules):**
-- **Direction 1** (topic→synonyms): If keyword contains topic name as complete word(s) AND keyword >= topic length → add all synonyms. Example: `"security mapping"` contains topic `"Security"` → adds synonyms. But `"data"` does NOT expand via multi-word topic `"Data import"`.
-- **Direction 2** (synonym→topic): If keyword exactly equals a synonym → add topic name. Multi-word keywords can match if synonym is a complete word in them. But `"data"` does NOT match synonym `"data validation"`.
-- **Key function**: `_is_word_match(needle, haystack)` enforces word boundary checks
-- **Key rule**: Single-word terms cannot match multi-word synonyms/topics (prevents generic word explosion)
+**Synonym Expansion (Bidirectional):** `expand_with_synonyms()` — Direction 1: keyword contains topic → adds synonyms. Direction 2: keyword equals synonym → adds topic name. `_is_word_match()` enforces word boundaries; single-word terms cannot match multi-word synonyms/topics. See `ARCHITECTURE_DETAIL.md`.
 
 **Product Filtering:**
 1. Empty taxonomy Product → matches ANY semantic Product
@@ -244,27 +190,9 @@ The version displays in the window title and About tab.
 3. "Other" semantic Product → matches any taxonomy Product
 4. Product aliases resolved via `_product_alias_map` before `_product_lookup` (v3.25)
 
-**Exact Match Bypass — REMOVED in v3.14:** All topics now go through normal fuzzy threshold matching. Cannot rely on URL path for product.
+**URL Nav Stopwords (v3.18):** `_URL_NAV_STOPWORDS` (taxonomy_matcher.py) and `URL_NAV_STOPWORDS` (content_keyword_extractor.py) filter Salesforce path scaffolding. **Keep both in sync.** Contains: `artikelen`, `nlcommunity`, `customers`, `lightning`, `knowledge`, etc.
 
-**URL Nav Stopwords (v3.18):**
-- `_URL_NAV_STOPWORDS` in `taxonomy_matcher.py` — applied in `extract_url_keywords()` (relevance scoring)
-- `URL_NAV_STOPWORDS` in `content_keyword_extractor.py` — merged with `STOPWORDS` only inside `extract_from_url()`, NOT applied to content columns
-- Contains: `artikelen`, `nlcommunity`, `customers`, `lightning`, `knowledge`, `wktaaeu`, `taasupport`, `wolterskluwer`, `userdocs`, plus generic nav words
-- **To add new nav words: edit both constants (keep them in sync)**
-
-**Noise Phrase Filter — `NOISE_PHRASE_STARTS` (content_keyword_extractor.py):**
-
-Prefix blocklist applied during keyword extraction from **content columns only** (Title, Summary, Description). `_is_noise_phrase()` rejects a phrase if:
-1. It starts with any entry in the list
-2. Any individual word equals a single-word entry
-3. More than half the words are stopwords
-4. Only one meaningful (non-stop) word remains
-
-Two categories of noise:
-- Generic CMS gerunds: `'enabling'`, `'providing'`, `'managing'`, `'configuring'`, `'automatically'`
-- Dutch Salesforce UI chrome: `'artikel vind'`, `'artikel lees'`, `'artikel legt'`, `'artikel leggen'`, `'alle artikelen'`, etc.
-
-**To add noise phrases:** Edit `NOISE_PHRASE_STARTS` in `content_keyword_extractor.py` (~line 121). Use shortest unambiguous prefix — single-word entries filter regardless of word position. Does NOT affect URL path extraction (handled by `URL_NAV_STOPWORDS`).
+**Noise Phrase Filter:** `NOISE_PHRASE_STARTS` in `content_keyword_extractor.py` (~line 121) — prefix blocklist for content columns only. Blocks CMS gerunds and Dutch UI chrome. Single-word entries filter regardless of position. Does NOT affect URL extraction. To add: use shortest unambiguous prefix.
 
 **Source-Aware Matching (v3.15):**
 - Title source: effective threshold = `max(70, threshold - 10)`, relevance boosted
@@ -299,7 +227,7 @@ Two categories of noise:
 **Output (taxonomy_match_{filename}_{CODE}.xlsx):**
 - Columns: URL, Title, Description, Summary, Product, Domain, Segment, Topic_1...Topic_N, Top_Score, Top_Relevance, Unmapped_Reason, Suggested_Product, Unmatched_Keywords, Rank
 - One row per URL-Segment combination
-- `Suggested_Product`: populated only on "Product filter excluded" unmapped rows — the product of best-scoring unfiltered match (v3.26). Empty on all matched rows.
+- `Suggested_Product`: populated only on "Product filter excluded" unmapped rows (v3.26). Empty on all matched rows.
 - `Unmatched_Keywords`: comma-separated keywords that didn't match above threshold
 
 **Unmapped_Reason values:**
@@ -368,23 +296,4 @@ In `find_topic_matches()`, `fuzz.ratio()` is used. Alternatives: `fuzz.partial_r
 | Product column garbage | Check temp file: if clean → ContentKeywordExtractor issue; if corrupt → salesforce_csv_processor issue |
 
 For Salesforce-specific troubleshooting see `SALESFORCE_WORKFLOW.md`.
-
----
-
-## Critical Bug Fixes Reference
-
-| Bug | Fix Location | Impact |
-|-----|--------------|--------|
-| Product filter too strict | `should_match_product()` | 64%→95%+ match rate |
-| One-way synonym matching | `expand_with_synonyms()` | 45%→60% match rate |
-| Substring false positives | Changed to `fuzz.ratio()` | Reduced irrelevant matches |
-| Single-word synonym explosion | `_is_word_match()` word boundary rules | "data" no longer matches 14 topics |
-| Summary single-word noise | `extract_summary_terms()` phrases only | "guide", "management" no longer hijack results |
-| Cross-product exact match | `find_topic_matches()` product filter | "automation" no longer pulls in wrong-product topics |
-| Synonym Editor delete fails | `exportselection=False` on Listbox widgets | Delete/edit buttons work |
-| Excel "found a problem" error | `sanitize_dataframe()` in report generation | Clean Excel output |
-| URL numeric prefixes in keywords | `extract_from_url()` strips leading digits | "15journals" → "journals" |
-| CamelCase URLs not split | `_CAMELCASE_PATTERN` regex in extraction | "ChartOfAccounts" → "chart accounts" |
-| Double-encoded URLs | `unquote(unquote(url))` in extraction | "%252B" decoded correctly |
-| HTML entities in keywords | `_clean_text()` decodes entities + stopwords | "nbsp", "amp" no longer in keywords |
-| BE alias product bypass (v3.25) | `find_topic_matches()` pre-filter | ~641 BE articles unmapped → fixed |
+For historical bug fixes see `ARCHITECTURE_DETAIL.md`.

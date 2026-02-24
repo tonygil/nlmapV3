@@ -1,14 +1,14 @@
-"""
-NL Taxonomy Mapper V3 - Beautiful GUI Application
+﻿"""
+Taxonomy Mapper V3 - Beautiful GUI Application
 Modern interface with multi-country support
 """
 
 # =============================================================================
 # VERSION - Update this when making changes to the application
 # =============================================================================
-VERSION = "3.28"
-VERSION_DATE = "2026-02-20"
-VERSION_NOTES = "Remove post_processor dependency — URL Pattern Filter now runs directly without rank trim or confidence scoring side effects"
+VERSION = "3.45"
+VERSION_DATE = "2026-02-23"
+VERSION_NOTES = "New Country Setup wizard — scaffold a country from the GUI"
 # =============================================================================
 
 import tkinter as tk
@@ -23,9 +23,18 @@ from taxonomy_matcher import TaxonomyMatcher
 from strict_content_matcher import StrictContentMatcher
 from country_config import CountryConfig
 import re
+import io
+import shutil
 from urllib.parse import urlparse, unquote
 import sys
 import pandas as pd
+
+try:
+    from apply_synonym_patch import apply_patch as _apply_synonym_patch, detect_country as _detect_patch_country
+    from apply_url_exclusions import apply_exclusions as _apply_url_exclusions, find_semantic_file as _find_semantic_file
+    _PATCH_IMPORTS_OK = True
+except ImportError:
+    _PATCH_IMPORTS_OK = False
 
 # URL patterns for the Filter URL Patterns feature
 URL_EXCLUSION_PATTERNS = [
@@ -269,12 +278,12 @@ def detect_file_swap(semantic_path, taxonomy_path):
 
 
 class TaxonomyMapperGUI:
-    """Modern GUI application for NL Taxonomy Mapper."""
+    """Modern GUI application for Taxonomy Mapper."""
     
     def __init__(self, root):
         """Initialize the GUI application."""
         self.root = root
-        self.root.title(f"NL Taxonomy Mapper V{VERSION}")
+        self.root.title(f"Taxonomy Mapper V{VERSION}")
         self.root.geometry("1000x850")  # Fallback size
         self.root.resizable(True, True)
         # Start maximized on Windows
@@ -305,6 +314,7 @@ class TaxonomyMapperGUI:
         self.max_rows_var = tk.IntVar(value=0)
         self.url_filter_var = tk.StringVar(value='')
         self.is_processing = False
+        self.last_match_output = None  # Set after each successful run; used to auto-populate Reports tab
 
         # Validation UI components
         self.semantic_validation_label = None
@@ -345,6 +355,9 @@ class TaxonomyMapperGUI:
             return
 
         self.selected_country = tk.StringVar(value=default_country)
+
+        # Initialise output filename with country code (timestamp added at run time)
+        self.output_file.set(f'taxonomy_match_{default_country}.xlsx')
 
         # Create UI
         self.create_header()
@@ -395,16 +408,23 @@ class TaxonomyMapperGUI:
         style.configure('TNotebook', background=self.colors['background'], borderwidth=0)
         style.configure('TNotebook.Tab', padding=[20, 10], font=('Segoe UI', 10))
         
-        notebook = ttk.Notebook(main)
-        notebook.pack(fill='both', expand=True)
-        
+        self.notebook = ttk.Notebook(main)
+        self.notebook.pack(fill='both', expand=True)
+        notebook = self.notebook  # local alias for tab-creation calls below
+
         self.create_setup_tab(notebook)
         self.create_log_tab(notebook)
         self.create_synonym_editor_tab(notebook)
         self.create_ds_editor_tab(notebook)
+        self.create_catmap_editor_tab(notebook)
+        self.create_noise_phrases_tab(notebook)
         self.create_synonym_assistant_tab(notebook)
         self.create_reports_tab(notebook)
+        self.create_advisor_tab(notebook)
+        self.create_workflow_tab(notebook)
         self.create_about_tab(notebook)
+
+        self.notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
         
     def create_setup_tab(self, notebook):
         """Create setup tab."""
@@ -891,6 +911,7 @@ class TaxonomyMapperGUI:
         """Create reports tab for analysis tools with scrollable layout."""
         frame = tk.Frame(notebook, bg=self.colors['background'])
         notebook.add(frame, text='   Reports  ')
+        self.reports_frame = frame  # used to detect when Reports tab is selected
 
         # Create scrollable container
         canvas = tk.Canvas(frame, bg=self.colors['background'], highlightthickness=0)
@@ -917,6 +938,123 @@ class TaxonomyMapperGUI:
         # Main content frame inside scrollable area
         main_content = tk.Frame(scrollable_frame, bg=self.colors['background'])
         main_content.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # ============ APPLY PATCHES ============
+        tk.Label(
+            main_content,
+            text="Apply Patches",
+            font=('Segoe UI', 12, 'bold'),
+            bg=self.colors['background'],
+            fg=self.colors['text']
+        ).pack(anchor='w', pady=(0, 10))
+
+        patches_card = tk.Frame(main_content, bg=self.colors['card'], relief='solid', bd=1)
+        patches_card.pack(fill='x', pady=(0, 15))
+
+        patches_content = tk.Frame(patches_card, bg=self.colors['card'])
+        patches_content.pack(fill='x', padx=15, pady=12)
+
+        tk.Label(
+            patches_content,
+            text="Apply synonym patches and URL exclusions exported from the browser triage tools "
+                 "(synonym_review.html / unmapped_review.html).",
+            font=('Segoe UI', 9),
+            bg=self.colors['card'],
+            fg=self.colors['text_light'],
+            justify='left'
+        ).pack(anchor='w', pady=(0, 8))
+
+        # Row 1: Synonym Patch file
+        p_row1 = tk.Frame(patches_content, bg=self.colors['card'])
+        p_row1.pack(fill='x', pady=2)
+        tk.Label(p_row1, text="Synonym Patch:", font=('Segoe UI', 9), bg=self.colors['card'],
+                 width=16, anchor='w').pack(side='left')
+        self.patch_synonym_file = tk.StringVar()
+        tk.Entry(p_row1, textvariable=self.patch_synonym_file, font=('Segoe UI', 8),
+                 width=45).pack(side='left', padx=(0, 5))
+        tk.Button(p_row1, text="Browse", font=('Segoe UI', 8), bg=self.colors['primary'],
+                  fg='white', relief='flat', padx=8,
+                  command=lambda: self._browse_patch_file(
+                      self.patch_synonym_file, "Select Synonym Patch",
+                      [("JSON files", "synonym_patch_*.json"), ("JSON files", "*.json")]
+                  )).pack(side='left')
+        tk.Button(p_row1, text="Clear", font=('Segoe UI', 8), bg='#95a5a6',
+                  fg='white', relief='flat', padx=6,
+                  command=lambda: self.patch_synonym_file.set('')).pack(side='left', padx=3)
+
+        # Row 2: URL Exclusions file
+        p_row2 = tk.Frame(patches_content, bg=self.colors['card'])
+        p_row2.pack(fill='x', pady=2)
+        tk.Label(p_row2, text="URL Exclusions:", font=('Segoe UI', 9), bg=self.colors['card'],
+                 width=16, anchor='w').pack(side='left')
+        self.patch_exclusions_file = tk.StringVar()
+        tk.Entry(p_row2, textvariable=self.patch_exclusions_file, font=('Segoe UI', 8),
+                 width=45).pack(side='left', padx=(0, 5))
+        tk.Button(p_row2, text="Browse", font=('Segoe UI', 8), bg=self.colors['primary'],
+                  fg='white', relief='flat', padx=8,
+                  command=lambda: self._browse_patch_file(
+                      self.patch_exclusions_file, "Select URL Exclusions",
+                      [("JSON files", "unmapped_exclusions_*.json"), ("JSON files", "*.json")]
+                  )).pack(side='left')
+        tk.Button(p_row2, text="Clear", font=('Segoe UI', 8), bg='#95a5a6',
+                  fg='white', relief='flat', padx=6,
+                  command=lambda: self.patch_exclusions_file.set('')).pack(side='left', padx=3)
+
+        # Row 3: Semantic file override (for URL exclusions)
+        p_row3 = tk.Frame(patches_content, bg=self.colors['card'])
+        p_row3.pack(fill='x', pady=2)
+        tk.Label(p_row3, text="Semantic File:", font=('Segoe UI', 9), bg=self.colors['card'],
+                 width=16, anchor='w').pack(side='left')
+        self.patch_semantic_file = tk.StringVar()
+        tk.Entry(p_row3, textvariable=self.patch_semantic_file, font=('Segoe UI', 8),
+                 width=45).pack(side='left', padx=(0, 5))
+        tk.Button(p_row3, text="Browse", font=('Segoe UI', 8), bg=self.colors['primary'],
+                  fg='white', relief='flat', padx=8,
+                  command=lambda: self._browse_patch_file(
+                      self.patch_semantic_file, "Select Semantic File",
+                      [("Excel files", "*.xlsx"), ("All files", "*.*")]
+                  )).pack(side='left')
+        tk.Button(p_row3, text="Clear", font=('Segoe UI', 8), bg='#95a5a6',
+                  fg='white', relief='flat', padx=6,
+                  command=lambda: self.patch_semantic_file.set('')).pack(side='left', padx=3)
+        tk.Label(p_row3, text="(optional — defaults to Setup tab file)",
+                 font=('Segoe UI', 8, 'italic'), bg=self.colors['card'],
+                 fg=self.colors['text_light']).pack(side='left', padx=4)
+
+        # Row 4: Re-run checkbox
+        p_row4 = tk.Frame(patches_content, bg=self.colors['card'])
+        p_row4.pack(anchor='w', pady=(6, 0))
+        self.patch_rerun = tk.BooleanVar(value=False)
+        tk.Checkbutton(p_row4, text="Re-run matching after applying",
+                       variable=self.patch_rerun,
+                       bg=self.colors['card'], fg=self.colors['text'],
+                       font=('Segoe UI', 9),
+                       activebackground=self.colors['card'],
+                       selectcolor=self.colors['card']).pack(side='left')
+
+        # Buttons
+        p_btn_row = tk.Frame(patches_content, bg=self.colors['card'])
+        p_btn_row.pack(anchor='w', pady=(10, 0))
+
+        tk.Button(
+            p_btn_row, text="Preview Changes",
+            command=lambda: self._run_apply_patches(dry_run=True),
+            font=('Segoe UI', 9, 'bold'), bg='#7f8c8d', fg='white',
+            relief='flat', padx=15, pady=6, cursor='hand2'
+        ).pack(side='left')
+
+        tk.Button(
+            p_btn_row, text="Apply Patches",
+            command=lambda: self._run_apply_patches(dry_run=False),
+            font=('Segoe UI', 9, 'bold'), bg='#e67e22', fg='white',
+            relief='flat', padx=15, pady=6, cursor='hand2'
+        ).pack(side='left', padx=(8, 0))
+
+        self.patch_status_label = tk.Label(
+            p_btn_row, text="", font=('Segoe UI', 9),
+            bg=self.colors['card'], fg=self.colors['text_light']
+        )
+        self.patch_status_label.pack(side='left', padx=12)
 
         # ============ QUICK REPORTS ROW (Synonym, Quality, Unmapped) ============
         quick_reports_label = tk.Label(
@@ -2108,6 +2246,578 @@ class TaxonomyMapperGUI:
         else:
             self.ds_stats_label.config(text=text, fg=self.colors['text_light'])
 
+    # ==================== CATEGORY MAPPING EDITOR ====================
+
+    def create_catmap_editor_tab(self, notebook):
+        """Create Category Mapping Editor tab for editing countries/{CC}/category_mapping.json."""
+        frame = tk.Frame(notebook, bg=self.colors['background'])
+        notebook.add(frame, text='   Category Mapping  ')
+
+        # ── state ────────────────────────────────────────────────────────────
+        self.catmap_data = {}       # {sf_category: product_or_None}
+        self.catmap_dirty = False   # unsaved changes flag
+
+        # ── top bar: country selector + status ───────────────────────────────
+        top_bar = tk.Frame(frame, bg=self.colors['card'], relief='solid', bd=1)
+        top_bar.pack(fill='x', padx=10, pady=(10, 0))
+
+        inner_bar = tk.Frame(top_bar, bg=self.colors['card'])
+        inner_bar.pack(fill='x', padx=12, pady=8)
+
+        tk.Label(inner_bar, text="Category Mapping Editor",
+                 font=('Segoe UI', 12, 'bold'),
+                 bg=self.colors['card'], fg=self.colors['text']).pack(side='left')
+
+        tk.Label(inner_bar,
+                 text="  —  maps Salesforce Data_Categories__c values to taxonomy Products",
+                 font=('Segoe UI', 9), bg=self.colors['card'],
+                 fg=self.colors['text_light']).pack(side='left')
+
+        # Country picker (right side)
+        country_frame = tk.Frame(inner_bar, bg=self.colors['card'])
+        country_frame.pack(side='right')
+
+        tk.Label(country_frame, text="Country:", font=('Segoe UI', 9),
+                 bg=self.colors['card']).pack(side='left', padx=(0, 5))
+        self.catmap_country = tk.StringVar(value=self.selected_country.get())
+        country_codes = [c['code'] if isinstance(c, dict) else c for c in self.available_countries]
+        catmap_country_cb = ttk.Combobox(
+            country_frame, textvariable=self.catmap_country,
+            values=country_codes, state='readonly', width=8
+        )
+        catmap_country_cb.pack(side='left')
+        catmap_country_cb.bind('<<ComboboxSelected>>', lambda e: self._catmap_load())
+
+        # ── main split: table left, detail/buttons right ─────────────────────
+        body = tk.Frame(frame, bg=self.colors['background'])
+        body.pack(fill='both', expand=True, padx=10, pady=8)
+
+        # Left: treeview
+        tree_frame = tk.Frame(body, bg=self.colors['card'], relief='solid', bd=1)
+        tree_frame.pack(side='left', fill='both', expand=True)
+
+        cols = ('category', 'product')
+        self.catmap_tree = ttk.Treeview(tree_frame, columns=cols, show='headings',
+                                         selectmode='browse')
+        self.catmap_tree.heading('category', text='Salesforce Category')
+        self.catmap_tree.heading('product',  text='→ Taxonomy Product')
+        self.catmap_tree.column('category', width=280, minwidth=150)
+        self.catmap_tree.column('product',  width=300, minwidth=150)
+
+        tree_sb = tk.Scrollbar(tree_frame, orient='vertical',
+                               command=self.catmap_tree.yview)
+        self.catmap_tree.configure(yscrollcommand=tree_sb.set)
+        tree_sb.pack(side='right', fill='y')
+        self.catmap_tree.pack(side='left', fill='both', expand=True)
+
+        # Tag colours: red for unmapped/invalid
+        self.catmap_tree.tag_configure('invalid', foreground='#dc2626')
+        self.catmap_tree.tag_configure('filter', foreground='#7f8c8d', font=('Segoe UI', 9, 'italic'))
+        self.catmap_tree.bind('<Double-1>', lambda e: self._catmap_edit_row())
+
+        # Right: buttons panel
+        btn_panel = tk.Frame(body, bg=self.colors['background'], width=160)
+        btn_panel.pack(side='right', fill='y', padx=(8, 0))
+        btn_panel.pack_propagate(False)
+
+        def _btn(parent, text, cmd, color=None):
+            color = color or self.colors['primary']
+            b = tk.Button(parent, text=text, command=cmd,
+                          font=('Segoe UI', 9, 'bold'), bg=color, fg='white',
+                          relief='flat', padx=10, pady=7, cursor='hand2')
+            b.pack(fill='x', pady=3)
+            return b
+
+        btn_card = tk.Frame(btn_panel, bg=self.colors['card'], relief='solid', bd=1)
+        btn_card.pack(fill='x', pady=(0, 8))
+        btn_inner = tk.Frame(btn_card, bg=self.colors['card'])
+        btn_inner.pack(fill='x', padx=10, pady=10)
+
+        _btn(btn_inner, "Add Row",    self._catmap_add_row,    '#27ae60')
+        _btn(btn_inner, "Edit Row",   self._catmap_edit_row,   self.colors['primary'])
+        _btn(btn_inner, "Delete Row", self._catmap_delete_row, '#e74c3c')
+
+        tk.Frame(btn_inner, height=1, bg=self.colors['border']).pack(fill='x', pady=6)
+
+        _btn(btn_inner, "Save",   self._catmap_save,   '#e67e22')
+        _btn(btn_inner, "Reload", self._catmap_load,   '#7f8c8d')
+
+        # Status label (shows row count / unsaved indicator)
+        self.catmap_status = tk.Label(
+            btn_panel, text="Not loaded",
+            font=('Segoe UI', 8), bg=self.colors['background'],
+            fg=self.colors['text_light'], wraplength=150, justify='left'
+        )
+        self.catmap_status.pack(anchor='w', pady=(4, 0))
+
+        # ── legend ────────────────────────────────────────────────────────────
+        legend = tk.Frame(frame, bg=self.colors['background'])
+        legend.pack(fill='x', padx=10, pady=(0, 6))
+        tk.Label(legend,
+                 text="  (filter out) = null mapping — category excluded from matching   "
+                      "  Red = product not found in current taxonomy",
+                 font=('Segoe UI', 8, 'italic'), bg=self.colors['background'],
+                 fg=self.colors['text_light']).pack(anchor='w')
+
+
+    def _catmap_json_path(self):
+        """Return Path to category_mapping.json for the selected country."""
+        from pathlib import Path
+        cc = self.catmap_country.get()
+        return Path(__file__).parent / 'countries' / cc / 'category_mapping.json'
+
+    def _catmap_load(self, _event=None):
+        """Load category_mapping.json for the current catmap country into the Treeview."""
+        path = self._catmap_json_path()
+        if not path.exists():
+            self.catmap_data = {}
+            self.catmap_dirty = False
+            self._catmap_refresh_tree()
+            self.catmap_status.config(
+                text=f"No category_mapping.json for {self.catmap_country.get()}",
+                fg='#e74c3c'
+            )
+            return
+        try:
+            with open(path, encoding='utf-8') as f:
+                raw = json.load(f)
+            mappings = raw.get('mappings', {})
+            self.catmap_data = dict(mappings)
+            self.catmap_dirty = False
+            self._catmap_refresh_tree()
+        except Exception as e:
+            messagebox.showerror("Load Error", f"Could not read category_mapping.json:\n{e}")
+
+    def _catmap_get_taxonomy_products(self):
+        """Return a set of valid Product names from the current taxonomy file."""
+        taxonomy_path = self.taxonomy_file.get()
+        if not taxonomy_path or not os.path.exists(taxonomy_path):
+            return set()
+        try:
+            df = pd.read_excel(taxonomy_path, dtype=str)
+            if 'Product' in df.columns:
+                return set(df['Product'].dropna().str.strip().unique())
+        except Exception:
+            pass
+        return set()
+
+    def _catmap_refresh_tree(self):
+        """Repopulate the Treeview from self.catmap_data."""
+        self.catmap_tree.delete(*self.catmap_tree.get_children())
+        valid_products = self._catmap_get_taxonomy_products()
+        row_count = 0
+        for sf_cat, product in sorted(self.catmap_data.items()):
+            if product is None:
+                display = "(filter out)"
+                tags = ('filter',)
+            else:
+                display = product
+                if valid_products and product not in valid_products:
+                    tags = ('invalid',)
+                else:
+                    tags = ()
+            self.catmap_tree.insert('', 'end', iid=sf_cat,
+                                    values=(sf_cat, display), tags=tags)
+            row_count += 1
+        dirty_str = "  ● unsaved" if self.catmap_dirty else ""
+        cc = self.catmap_country.get()
+        self.catmap_status.config(
+            text=f"{cc}: {row_count} rows{dirty_str}",
+            fg='#e67e22' if self.catmap_dirty else self.colors['text_light']
+        )
+
+    def _catmap_row_dialog(self, title, init_cat='', init_product=''):
+        """Modal dialog to enter/edit a category mapping row.
+
+        Returns (sf_category, product_or_None) or None if cancelled.
+        'product_or_None' is None when user selects '(filter out)'.
+        """
+        valid_products = sorted(self._catmap_get_taxonomy_products())
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.geometry("500x260")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        result = [None]  # use list so inner func can mutate
+
+        tk.Label(dialog, text=title, font=('Segoe UI', 12, 'bold'),
+                 pady=10).pack()
+
+        form = tk.Frame(dialog)
+        form.pack(fill='x', padx=20, pady=5)
+
+        # SF Category
+        tk.Label(form, text="Salesforce Category:", anchor='w',
+                 font=('Segoe UI', 9)).grid(row=0, column=0, sticky='w', pady=4)
+        cat_var = tk.StringVar(value=init_cat)
+        cat_entry = tk.Entry(form, textvariable=cat_var, width=38, font=('Segoe UI', 9))
+        cat_entry.grid(row=0, column=1, sticky='ew', padx=(8, 0), pady=4)
+
+        # Taxonomy Product
+        tk.Label(form, text="Taxonomy Product:", anchor='w',
+                 font=('Segoe UI', 9)).grid(row=1, column=0, sticky='w', pady=4)
+        product_var = tk.StringVar(value=init_product)
+
+        if valid_products:
+            choices = ['(filter out)'] + valid_products
+            product_cb = ttk.Combobox(form, textvariable=product_var,
+                                      values=choices, width=36, font=('Segoe UI', 9))
+            product_cb.grid(row=1, column=1, sticky='ew', padx=(8, 0), pady=4)
+        else:
+            tk.Entry(form, textvariable=product_var, width=38,
+                     font=('Segoe UI', 9)).grid(row=1, column=1, sticky='ew',
+                                                 padx=(8, 0), pady=4)
+
+        # Validation note
+        val_label = tk.Label(form, text="", font=('Segoe UI', 8),
+                             fg='#e74c3c', anchor='w')
+        val_label.grid(row=2, column=0, columnspan=2, sticky='w', pady=2)
+
+        form.columnconfigure(1, weight=1)
+
+        def _validate(_=None):
+            pv = product_var.get().strip()
+            if valid_products and pv and pv != '(filter out)' and pv not in valid_products:
+                val_label.config(
+                    text=f"Warning: '{pv}' not found in taxonomy — will save but won't match"
+                )
+            else:
+                val_label.config(text="")
+
+        product_var.trace_add('write', _validate)
+
+        def _ok():
+            cat = cat_var.get().strip()
+            pv = product_var.get().strip()
+            if not cat:
+                messagebox.showwarning("Missing value",
+                                       "Salesforce Category cannot be empty.", parent=dialog)
+                return
+            product_out = None if pv in ('', '(filter out)') else pv
+            result[0] = (cat, product_out)
+            dialog.destroy()
+
+        btn_row = tk.Frame(dialog)
+        btn_row.pack(pady=12)
+        tk.Button(btn_row, text="OK", command=_ok,
+                  font=('Segoe UI', 10), bg=self.colors['primary'],
+                  fg='white', relief='flat', padx=20, pady=5).pack(side='left', padx=5)
+        tk.Button(btn_row, text="Cancel", command=dialog.destroy,
+                  font=('Segoe UI', 10), bg='#95a5a6',
+                  fg='white', relief='flat', padx=20, pady=5).pack(side='left', padx=5)
+
+        cat_entry.focus_set()
+        dialog.bind('<Return>', lambda e: _ok())
+        dialog.wait_window()
+        return result[0]
+
+    def _catmap_add_row(self):
+        """Add a new category mapping row."""
+        res = self._catmap_row_dialog("Add Category Mapping")
+        if res is None:
+            return
+        sf_cat, product = res
+        if sf_cat in self.catmap_data:
+            messagebox.showwarning("Duplicate",
+                                   f"'{sf_cat}' already exists. Use Edit to change it.")
+            return
+        self.catmap_data[sf_cat] = product
+        self.catmap_dirty = True
+        self._catmap_refresh_tree()
+        # Select the new row
+        if sf_cat in [self.catmap_tree.item(i)['values'][0]
+                      for i in self.catmap_tree.get_children()]:
+            self.catmap_tree.selection_set(sf_cat)
+            self.catmap_tree.see(sf_cat)
+
+    def _catmap_edit_row(self):
+        """Edit the selected category mapping row."""
+        sel = self.catmap_tree.selection()
+        if not sel:
+            messagebox.showinfo("No selection", "Select a row to edit.")
+            return
+        iid = sel[0]
+        old_cat = iid
+        old_product = self.catmap_data.get(old_cat)
+        init_product = '' if old_product is None else old_product
+
+        res = self._catmap_row_dialog("Edit Category Mapping",
+                                      init_cat=old_cat, init_product=init_product)
+        if res is None:
+            return
+        new_cat, new_product = res
+
+        # Remove old, add new (handles rename)
+        del self.catmap_data[old_cat]
+        self.catmap_data[new_cat] = new_product
+        self.catmap_dirty = True
+        self._catmap_refresh_tree()
+
+    def _catmap_delete_row(self):
+        """Delete the selected category mapping row."""
+        sel = self.catmap_tree.selection()
+        if not sel:
+            messagebox.showinfo("No selection", "Select a row to delete.")
+            return
+        iid = sel[0]
+        if not messagebox.askyesno("Confirm Delete",
+                                    f"Delete mapping for '{iid}'?"):
+            return
+        del self.catmap_data[iid]
+        self.catmap_dirty = True
+        self._catmap_refresh_tree()
+
+    def _catmap_save(self):
+        """Write self.catmap_data back to category_mapping.json with a backup."""
+        from pathlib import Path
+        path = self._catmap_json_path()
+        if not path.exists():
+            messagebox.showerror("Save Error",
+                                 f"category_mapping.json not found at:\n{path}\n\n"
+                                 "Create the file first (it can start as an empty JSON object).")
+            return
+
+        # Backup
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = path.with_name(f"category_mapping_backup_{ts}.json")
+        try:
+            shutil.copy2(path, backup_path)
+        except Exception as e:
+            messagebox.showerror("Backup Error", f"Could not create backup:\n{e}")
+            return
+
+        # Read existing file to preserve _comment, statistics, etc.
+        try:
+            with open(path, encoding='utf-8') as f:
+                existing = json.load(f)
+        except Exception:
+            existing = {}
+
+        existing['mappings'] = self.catmap_data
+
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(existing, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Could not write file:\n{e}")
+            return
+
+        self.catmap_dirty = False
+        self._catmap_refresh_tree()
+        messagebox.showinfo(
+            "Saved",
+            f"category_mapping.json saved.\nBackup: {backup_path.name}"
+        )
+
+    # ==================== END CATEGORY MAPPING EDITOR ====================
+
+    # ==================== NOISE PHRASES EDITOR ====================
+
+    def create_noise_phrases_tab(self, notebook):
+        """Create Noise Phrases Editor tab for editing countries/{CC}/noise_phrases.json."""
+        frame = tk.Frame(notebook, bg=self.colors['background'])
+        notebook.add(frame, text='   Noise Phrases  ')
+        self.noise_phrases_frame = frame
+
+        # ── top bar ───────────────────────────────────────────────────────────
+        top_bar = tk.Frame(frame, bg=self.colors['card'], relief='solid', bd=1)
+        top_bar.pack(fill='x', padx=10, pady=(10, 0))
+
+        inner_bar = tk.Frame(top_bar, bg=self.colors['card'])
+        inner_bar.pack(fill='x', padx=12, pady=8)
+
+        tk.Label(inner_bar, text="Noise Phrases Editor",
+                 font=('Segoe UI', 12, 'bold'),
+                 bg=self.colors['card'], fg=self.colors['text']).pack(side='left')
+
+        tk.Label(inner_bar,
+                 text="  —  phrases filtered from content keywords before matching",
+                 font=('Segoe UI', 9), bg=self.colors['card'],
+                 fg=self.colors['text_light']).pack(side='left')
+
+        # Country picker
+        country_frame = tk.Frame(inner_bar, bg=self.colors['card'])
+        country_frame.pack(side='right')
+        tk.Label(country_frame, text="Country:", font=('Segoe UI', 9),
+                 bg=self.colors['card']).pack(side='left', padx=(0, 5))
+        self.noise_country = tk.StringVar(value=self.selected_country.get())
+        country_codes = [c['code'] if isinstance(c, dict) else c for c in self.available_countries]
+        noise_cc_cb = ttk.Combobox(country_frame, textvariable=self.noise_country,
+                                   values=country_codes, state='readonly', width=8)
+        noise_cc_cb.pack(side='left')
+        noise_cc_cb.bind('<<ComboboxSelected>>', lambda e: self._noise_load())
+
+        # ── body: list + buttons ─────────────────────────────────────────────
+        body = tk.Frame(frame, bg=self.colors['background'])
+        body.pack(fill='both', expand=True, padx=10, pady=8)
+
+        # Left: list
+        list_card = tk.Frame(body, bg=self.colors['card'], relief='solid', bd=1)
+        list_card.pack(side='left', fill='both', expand=True)
+
+        list_inner = tk.Frame(list_card, bg=self.colors['card'])
+        list_inner.pack(fill='both', expand=True, padx=10, pady=10)
+
+        tk.Label(list_inner,
+                 text="Phrases starting with any entry below are filtered from extracted keywords.",
+                 font=('Segoe UI', 9), bg=self.colors['card'],
+                 fg=self.colors['text_light'], justify='left').pack(anchor='w', pady=(0, 6))
+
+        list_frame = tk.Frame(list_inner, bg=self.colors['card'])
+        list_frame.pack(fill='both', expand=True)
+
+        sb = tk.Scrollbar(list_frame)
+        sb.pack(side='right', fill='y')
+        self.noise_listbox = tk.Listbox(
+            list_frame, font=('Segoe UI', 10),
+            yscrollcommand=sb.set, selectmode='single',
+            exportselection=False, bg=self.colors['card'],
+            fg=self.colors['text'], selectbackground=self.colors['primary'],
+            selectforeground='white'
+        )
+        self.noise_listbox.pack(side='left', fill='both', expand=True)
+        sb.config(command=self.noise_listbox.yview)
+
+        # Right: button panel
+        btn_panel = tk.Frame(body, bg=self.colors['background'], width=160)
+        btn_panel.pack(side='right', fill='y', padx=(8, 0))
+        btn_panel.pack_propagate(False)
+
+        btn_card = tk.Frame(btn_panel, bg=self.colors['card'], relief='solid', bd=1)
+        btn_card.pack(fill='x')
+        btn_inner = tk.Frame(btn_card, bg=self.colors['card'])
+        btn_inner.pack(fill='x', padx=10, pady=10)
+
+        def _btn(text, cmd, color=None):
+            color = color or self.colors['primary']
+            tk.Button(btn_inner, text=text, command=cmd,
+                      font=('Segoe UI', 9, 'bold'), bg=color, fg='white',
+                      relief='flat', padx=10, pady=7, cursor='hand2').pack(fill='x', pady=3)
+
+        _btn("Add Phrase",    self._noise_add,    '#27ae60')
+        _btn("Delete Phrase", self._noise_delete, '#e74c3c')
+
+        tk.Frame(btn_inner, height=1, bg=self.colors['border']).pack(fill='x', pady=6)
+
+        _btn("Save",   self._noise_save,   '#e67e22')
+        _btn("Reload", self._noise_load,   '#7f8c8d')
+
+        self.noise_status = tk.Label(
+            btn_panel, text="Not loaded",
+            font=('Segoe UI', 8), bg=self.colors['background'],
+            fg=self.colors['text_light'], wraplength=150, justify='left'
+        )
+        self.noise_status.pack(anchor='w', pady=(6, 0))
+
+        # ── info footer ───────────────────────────────────────────────────────
+        footer = tk.Frame(frame, bg=self.colors['background'])
+        footer.pack(fill='x', padx=10, pady=(0, 6))
+        tk.Label(footer,
+                 text="Rules: phrase is blocked if it (a) starts with any entry, "
+                      "(b) contains any single-word entry, "
+                      "(c) is >50% stopwords, or (d) has ≤1 meaningful word.",
+                 font=('Segoe UI', 8, 'italic'), bg=self.colors['background'],
+                 fg=self.colors['text_light'], justify='left').pack(anchor='w')
+
+    def _noise_json_path(self):
+        """Return Path to noise_phrases.json for the selected country."""
+        from pathlib import Path
+        cc = self.noise_country.get()
+        return Path(__file__).parent / 'countries' / cc / 'noise_phrases.json'
+
+    def _noise_load(self, _event=None):
+        """Load noise_phrases.json for the current country into the listbox."""
+        path = self._noise_json_path()
+        if not path.exists():
+            self.noise_listbox.delete(0, 'end')
+            self.noise_dirty = False
+            self.noise_status.config(
+                text=f"No noise_phrases.json for {self.noise_country.get()}",
+                fg='#e74c3c'
+            )
+            return
+        try:
+            with open(path, encoding='utf-8') as f:
+                phrases = json.load(f)
+            self._noise_phrases = sorted(phrases)
+            self.noise_dirty = False
+            self._noise_refresh_list()
+        except Exception as e:
+            messagebox.showerror("Load Error", f"Could not read noise_phrases.json:\n{e}")
+
+    def _noise_refresh_list(self):
+        """Repopulate the listbox from self._noise_phrases."""
+        self.noise_listbox.delete(0, 'end')
+        for phrase in sorted(self._noise_phrases):
+            self.noise_listbox.insert('end', phrase)
+        cc = self.noise_country.get()
+        dirty_str = "  ● unsaved" if getattr(self, 'noise_dirty', False) else ""
+        self.noise_status.config(
+            text=f"{cc}: {len(self._noise_phrases)} phrases{dirty_str}",
+            fg='#e67e22' if getattr(self, 'noise_dirty', False) else self.colors['text_light']
+        )
+
+    def _noise_add(self):
+        """Prompt for a new noise phrase and add it."""
+        phrase = simpledialog.askstring(
+            "Add Noise Phrase",
+            "Enter phrase prefix to filter\n(e.g. 'enabling', 'dit artikel'):",
+            parent=self.root
+        )
+        if phrase is None:
+            return
+        phrase = phrase.strip().lower()
+        if not phrase:
+            return
+        if not hasattr(self, '_noise_phrases'):
+            self._noise_phrases = []
+        if phrase in self._noise_phrases:
+            messagebox.showinfo("Already exists",
+                                f"'{phrase}' is already in the list.")
+            return
+        self._noise_phrases.append(phrase)
+        self.noise_dirty = True
+        self._noise_refresh_list()
+
+    def _noise_delete(self):
+        """Delete the selected noise phrase."""
+        sel = self.noise_listbox.curselection()
+        if not sel:
+            messagebox.showinfo("No selection", "Select a phrase to delete.")
+            return
+        phrase = self.noise_listbox.get(sel[0])
+        if not messagebox.askyesno("Confirm Delete",
+                                    f"Delete noise phrase '{phrase}'?"):
+            return
+        self._noise_phrases.remove(phrase)
+        self.noise_dirty = True
+        self._noise_refresh_list()
+
+    def _noise_save(self):
+        """Save self._noise_phrases to noise_phrases.json (no backup needed for this simple list)."""
+        if not hasattr(self, '_noise_phrases'):
+            messagebox.showinfo("Nothing to save", "Load a country first.")
+            return
+        path = self._noise_json_path()
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(sorted(self._noise_phrases), f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Could not write file:\n{e}")
+            return
+        self.noise_dirty = False
+        self._noise_refresh_list()
+        self.noise_status.config(
+            text=f"{self.noise_country.get()}: {len(self._noise_phrases)} phrases  ✓ saved",
+            fg='#27ae60'
+        )
+        self.root.after(3000, self._noise_refresh_list)
+
+    # ==================== END NOISE PHRASES EDITOR ====================
+
     def create_synonym_assistant_tab(self, notebook):
         """Create dedicated Synonym Assistant tab with full-size layout."""
         frame = tk.Frame(notebook, bg=self.colors['background'])
@@ -2376,6 +3086,1197 @@ class TaxonomyMapperGUI:
         )
         self.assistant_preview_btn.pack(side='right', padx=(0, 10))
 
+    # ==================== CAMPAIGN ASSISTANT TAB ====================
+
+    def create_advisor_tab(self, notebook):
+        """Create Campaign Assistant tab — automated improvement advisor."""
+        frame = tk.Frame(notebook, bg=self.colors['background'])
+        notebook.add(frame, text='   Campaign Assistant  ')
+        self.advisor_frame = frame
+
+        # Header bar
+        hdr_bar = tk.Frame(frame, bg=self.colors['card'], relief='solid', bd=1)
+        hdr_bar.pack(fill='x', padx=10, pady=(10, 0))
+        hdr_inner = tk.Frame(hdr_bar, bg=self.colors['card'])
+        hdr_inner.pack(fill='x', padx=12, pady=8)
+        tk.Label(hdr_inner, text="Campaign Assistant",
+                 font=('Segoe UI', 13, 'bold'),
+                 bg=self.colors['card'], fg=self.colors['text']).pack(side='left')
+        tk.Label(hdr_inner,
+                 text="  —  diagnose unmapped URLs and apply ranked fixes in one click",
+                 font=('Segoe UI', 9),
+                 bg=self.colors['card'], fg=self.colors['text_light']).pack(side='left')
+
+        # Controls bar
+        ctrl_bar = tk.Frame(frame, bg=self.colors['card'], relief='solid', bd=1)
+        ctrl_bar.pack(fill='x', padx=10, pady=(5, 0))
+        ctrl_inner = tk.Frame(ctrl_bar, bg=self.colors['card'])
+        ctrl_inner.pack(fill='x', padx=12, pady=10)
+
+        # Row 1: match file picker
+        file_row = tk.Frame(ctrl_inner, bg=self.colors['card'])
+        file_row.pack(fill='x', pady=(0, 6))
+        tk.Label(file_row, text="Match File:", font=('Segoe UI', 10),
+                 bg=self.colors['card'], width=12, anchor='w').pack(side='left')
+        self.advisor_match_file = tk.StringVar()
+        tk.Entry(file_row, textvariable=self.advisor_match_file,
+                 font=('Segoe UI', 10), width=65).pack(side='left', padx=(0, 6))
+        tk.Button(file_row, text="Browse",
+                  command=self._advisor_browse_match,
+                  font=('Segoe UI', 9), bg=self.colors['primary'], fg='white',
+                  relief='flat', padx=12, cursor='hand2').pack(side='left', padx=(0, 4))
+        tk.Button(file_row, text="Auto-fill",
+                  command=self._advisor_autofill,
+                  font=('Segoe UI', 9), bg='#64748b', fg='white',
+                  relief='flat', padx=10, cursor='hand2').pack(side='left')
+
+        # Row 2: country + target + analyse button
+        opts_row = tk.Frame(ctrl_inner, bg=self.colors['card'])
+        opts_row.pack(fill='x')
+        tk.Label(opts_row, text="Country:", font=('Segoe UI', 10),
+                 bg=self.colors['card']).pack(side='left')
+        cc_list = [c['code'] if isinstance(c, dict) else c
+                   for c in self.available_countries]
+        self.advisor_country = tk.StringVar(value=self.selected_country.get())
+        ttk.Combobox(opts_row, textvariable=self.advisor_country,
+                     values=cc_list, state='readonly', width=8).pack(
+            side='left', padx=(4, 18))
+        tk.Label(opts_row, text="Target:", font=('Segoe UI', 10),
+                 bg=self.colors['card']).pack(side='left')
+        self.advisor_target = tk.StringVar(value='80')
+        tk.Entry(opts_row, textvariable=self.advisor_target,
+                 font=('Segoe UI', 10), width=5).pack(side='left', padx=(4, 2))
+        tk.Label(opts_row, text="%", font=('Segoe UI', 10),
+                 bg=self.colors['card']).pack(side='left', padx=(0, 18))
+        self.advisor_analyse_btn = tk.Button(
+            opts_row, text="  Analyse  ",
+            command=self._advisor_analyse,
+            font=('Segoe UI', 10, 'bold'),
+            bg=self.colors['secondary'], fg='white',
+            relief='flat', padx=16, pady=3, cursor='hand2')
+        self.advisor_analyse_btn.pack(side='left')
+        self.advisor_status_label = tk.Label(
+            opts_row, text="",
+            font=('Segoe UI', 9, 'italic'),
+            bg=self.colors['card'], fg=self.colors['text_light'])
+        self.advisor_status_label.pack(side='left', padx=(10, 0))
+
+        # Stats strip (populated after analysis)
+        self.advisor_stats_outer = tk.Frame(frame, bg=self.colors['background'])
+        self.advisor_stats_outer.pack(fill='x', padx=10, pady=(5, 0))
+
+        # Scrollable suggestions area
+        scroll_host = tk.Frame(frame, bg=self.colors['background'])
+        scroll_host.pack(fill='both', expand=True, padx=10, pady=(5, 0))
+        self.advisor_canvas = tk.Canvas(
+            scroll_host, bg=self.colors['background'], highlightthickness=0)
+        adv_vsb = tk.Scrollbar(scroll_host, orient='vertical',
+                               command=self.advisor_canvas.yview)
+        self.advisor_scroll_inner = tk.Frame(
+            self.advisor_canvas, bg=self.colors['background'])
+        self.advisor_scroll_inner.bind(
+            '<Configure>',
+            lambda e: self.advisor_canvas.configure(
+                scrollregion=self.advisor_canvas.bbox('all')))
+        _adv_win_id = self.advisor_canvas.create_window(
+            (0, 0), window=self.advisor_scroll_inner, anchor='nw')
+        self.advisor_canvas.configure(yscrollcommand=adv_vsb.set)
+        self.advisor_canvas.bind(
+            '<Configure>',
+            lambda e, wid=_adv_win_id: self.advisor_canvas.itemconfig(
+                wid, width=e.width))
+        self.advisor_canvas.bind(
+            '<MouseWheel>',
+            lambda e: self.advisor_canvas.yview_scroll(
+                int(-1 * (e.delta / 120)), 'units'))
+        adv_vsb.pack(side='right', fill='y')
+        self.advisor_canvas.pack(side='left', fill='both', expand=True)
+
+        # Placeholder shown before first analysis
+        tk.Label(
+            self.advisor_scroll_inner,
+            text="Select a match output file and click Analyse to see improvement suggestions.",
+            font=('Segoe UI', 11, 'italic'),
+            bg=self.colors['background'], fg=self.colors['text_light']
+        ).pack(pady=40)
+
+        # Bottom re-run bar (not shown until after first analysis)
+        self.advisor_rerun_bar = tk.Frame(
+            frame, bg=self.colors['card'], relief='solid', bd=1)
+        rerun_inner = tk.Frame(self.advisor_rerun_bar, bg=self.colors['card'])
+        rerun_inner.pack(fill='x', padx=12, pady=8)
+        self.advisor_rerun_label = tk.Label(
+            rerun_inner,
+            text="Apply fixes above, then re-run the matcher to see the impact.",
+            font=('Segoe UI', 9), bg=self.colors['card'],
+            fg=self.colors['text_light'])
+        self.advisor_rerun_label.pack(side='left')
+        tk.Button(rerun_inner, text="Re-run Matcher",
+                  command=self._advisor_rerun,
+                  font=('Segoe UI', 10, 'bold'),
+                  bg=self.colors['primary'], fg='white',
+                  relief='flat', padx=18, pady=4, cursor='hand2').pack(side='right')
+
+        # Internal state
+        self._advisor_suggestions = []
+        self._advisor_stats = {}
+        self._advisor_rerun_pending = False
+        self._advisor_baseline_stats = {}
+
+    def _advisor_browse_match(self):
+        """Open file dialog for match output file."""
+        init = os.path.dirname(self.advisor_match_file.get()) or '.'
+        path = filedialog.askopenfilename(
+            title="Select Match Output File",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+            initialdir=init)
+        if path:
+            self.advisor_match_file.set(path)
+
+    def _advisor_autofill(self):
+        """Auto-populate match file from last run."""
+        last = getattr(self, 'last_match_output', None)
+        if last and os.path.exists(last):
+            self.advisor_match_file.set(last)
+            self.advisor_country.set(self.selected_country.get())
+            self.advisor_status_label.config(
+                text="Auto-filled from last run", fg=self.colors['secondary'])
+        else:
+            self.advisor_status_label.config(
+                text="No recent run — browse for a file", fg=self.colors['error'])
+
+    def _advisor_analyse(self):
+        """Validate inputs and start analysis in background thread."""
+        match_file = self.advisor_match_file.get().strip()
+        if not match_file:
+            messagebox.showwarning("Campaign Assistant",
+                                   "Please select a match output file.")
+            return
+        if not os.path.exists(match_file):
+            messagebox.showwarning("Campaign Assistant",
+                                   f"File not found:\n{match_file}")
+            return
+        try:
+            target = float(self.advisor_target.get())
+            if not 1 <= target <= 100:
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning("Campaign Assistant",
+                                   "Target must be a number between 1 and 100.")
+            return
+        self.advisor_analyse_btn.config(state='disabled')
+        self.advisor_status_label.config(
+            text="Analysing\u2026", fg=self.colors['primary'])
+        country = self.advisor_country.get()
+        threading.Thread(
+            target=self._advisor_analyse_worker,
+            args=(match_file, country, target),
+            daemon=True).start()
+
+    def _advisor_analyse_worker(self, match_file, country, target_rate):
+        """Background analysis worker."""
+        try:
+            results_df = pd.read_excel(match_file, sheet_name='Results',
+                                       dtype=str)
+            results_df = results_df.fillna('')
+        except Exception as e:
+            err = str(e)
+            self.root.after(0, lambda: (
+                self.advisor_status_label.config(
+                    text=f"Error reading file: {err}", fg=self.colors['error']),
+                self.advisor_analyse_btn.config(state='normal')))
+            return
+        try:
+            recs_df = pd.read_excel(match_file,
+                                    sheet_name='Keyword Recommendations',
+                                    dtype=str)
+            recs_df = recs_df.fillna('')
+        except Exception:
+            recs_df = pd.DataFrame()
+        base = os.path.dirname(os.path.abspath(__file__))
+        synonyms_path = os.path.join(base, 'countries', country, 'synonyms.json')
+        catmap_path = os.path.join(base, 'countries', country,
+                                   'category_mapping.json')
+        stats = self._advisor_compute_stats(results_df, target_rate)
+        suggestions = self._advisor_generate_suggestions(
+            results_df, recs_df, synonyms_path, catmap_path)
+        self._advisor_stats = stats
+        self._advisor_suggestions = suggestions
+        self.root.after(0, lambda: self._advisor_render(suggestions, stats))
+
+    def _advisor_compute_stats(self, results_df, target_rate):
+        """Compute unique-URL match rate statistics."""
+        if 'URL' not in results_df.columns:
+            return {'total': 0, 'mapped': 0, 'match_rate': 0.0,
+                    'target': target_rate, 'need': 0, 'target_count': 0}
+        total = results_df['URL'].nunique()
+        if 'Topic_1' in results_df.columns:
+            mapped = len(
+                results_df[results_df['Topic_1'].str.strip() != '']['URL'].unique())
+        elif 'Unmapped_Reason' in results_df.columns:
+            unmapped_urls = results_df[
+                results_df['Unmapped_Reason'].str.strip() != ''
+            ]['URL'].unique()
+            mapped = total - len(unmapped_urls)
+        else:
+            mapped = 0
+        rate = round(mapped / total * 100, 1) if total > 0 else 0.0
+        target_count = int(total * target_rate / 100)
+        need = max(0, target_count - mapped)
+        return {'total': total, 'mapped': mapped, 'match_rate': rate,
+                'target': target_rate, 'need': need, 'target_count': target_count}
+
+    def _advisor_generate_suggestions(self, results_df, recs_df,
+                                      synonyms_path, catmap_path):
+        """Generate ranked fix suggestions from match output."""
+        suggestions = []
+
+        # -- Category Mapping --
+        catmap_data = {}
+        if os.path.exists(catmap_path):
+            try:
+                with open(catmap_path, encoding='utf-8') as f:
+                    catmap_data = json.load(f)
+            except Exception:
+                pass
+        mapped_keys = {k.lower() for k in catmap_data if not k.startswith('_')}
+
+        if 'Unmapped_Reason' in results_df.columns:
+            pfe = results_df[
+                results_df['Unmapped_Reason'].str.contains(
+                    'Product filter excluded', na=False)
+            ].copy()
+            if not pfe.empty:
+                def _parse_product(reason):
+                    m = re.search(r'semantic Product:\s*(.+?)\)', str(reason))
+                    return m.group(1).strip() if m else ''
+                pfe['_sfp'] = pfe['Unmapped_Reason'].apply(_parse_product)
+                pfe = pfe[pfe['_sfp'] != '']
+                for sfp, grp in pfe.groupby('_sfp'):
+                    if sfp.lower() in mapped_keys:
+                        continue
+                    n = grp['URL'].nunique()
+                    if n < 1:
+                        continue
+                    suggested = ''
+                    if 'Suggested_Product' in grp.columns:
+                        sp_vals = grp['Suggested_Product'][
+                            grp['Suggested_Product'].str.strip() != '']
+                        if not sp_vals.empty:
+                            suggested = sp_vals.value_counts().index[0]
+                    suggestions.append({
+                        'type': 'catmap',
+                        'title': f'Map Salesforce product "{sfp}"',
+                        'est_gain': n,
+                        'sf_product': sfp,
+                        'suggested_target': suggested,
+                        'url_count': n,
+                        'applied': False,
+                        'skipped': False,
+                        'urls': sorted(grp['URL'].unique().tolist()),
+                    })
+
+        # -- Synonym --
+        existing_syn = {}
+        if os.path.exists(synonyms_path):
+            try:
+                with open(synonyms_path, encoding='utf-8') as f:
+                    sd = json.load(f)
+                existing_syn = {k.lower(): [s.lower() for s in v]
+                                for k, v in sd.get('synonyms', {}).items()}
+            except Exception:
+                pass
+
+        if not recs_df.empty and 'Topic' in recs_df.columns:
+            skip_actions = {'Cross-product', 'New topic?', 'Review',
+                            'Cross-product match'}
+            mask = pd.Series([True] * len(recs_df), index=recs_df.index)
+            if 'Priority' in recs_df.columns:
+                mask &= recs_df['Priority'].isin(['HIGH', 'MEDIUM'])
+            if 'In_Synonyms' in recs_df.columns:
+                mask &= ~(recs_df['In_Synonyms'].str.strip().str.upper() == 'YES')
+            if 'Action' in recs_df.columns:
+                mask &= ~recs_df['Action'].isin(skip_actions)
+            filtered = recs_df[mask]
+            if not filtered.empty and 'Keyword' in filtered.columns:
+                for topic, grp in filtered.groupby('Topic'):
+                    if not str(topic).strip():
+                        continue
+                    existing = existing_syn.get(str(topic).lower(), [])
+                    keywords = []
+                    for _, row in grp.iterrows():
+                        kw = str(row['Keyword']).strip()
+                        if not kw or kw.lower() in existing:
+                            continue
+                        try:
+                            freq = int(float(str(row.get('Frequency', 1))))
+                        except (ValueError, TypeError):
+                            freq = 1
+                        keywords.append((kw, freq))
+                    keywords.sort(key=lambda x: x[1], reverse=True)
+                    keywords = keywords[:8]
+                    if not keywords:
+                        continue
+                    url_cols = [c for c in grp.columns
+                                if re.match(r'^URL_\d+$', c)]
+                    syn_urls: set = set()
+                    for _, ur in grp.iterrows():
+                        for uc in url_cols:
+                            v = str(ur.get(uc, '')).strip()
+                            if v and v.lower() != 'nan':
+                                syn_urls.add(v)
+                    suggestions.append({
+                        'type': 'synonym',
+                        'title': f'Add synonyms for topic "{topic}"',
+                        'est_gain': sum(f for _, f in keywords),
+                        'topic': topic,
+                        'keywords': keywords,
+                        'synonyms_path': synonyms_path,
+                        'applied': False,
+                        'skipped': False,
+                        'urls': sorted(syn_urls),
+                    })
+
+        # -- Data issues --
+        if 'Unmapped_Reason' in results_df.columns:
+            no_kw = int((results_df['Unmapped_Reason'] ==
+                         'No keywords extracted from row').sum())
+            no_match = int(results_df['Unmapped_Reason'].str.contains(
+                'No matches above', na=False).sum())
+            if no_kw > 0:
+                nokw_urls = sorted(
+                    results_df[results_df['Unmapped_Reason'] ==
+                               'No keywords extracted from row'
+                               ]['URL'].unique().tolist())
+                suggestions.append({'type': 'data', 'title': 'URLs with no keywords',
+                                    'est_gain': 0, 'count': no_kw,
+                                    'applied': False, 'skipped': False,
+                                    'urls': nokw_urls})
+            if no_match > 0:
+                nomatch_urls = sorted(
+                    results_df[results_df['Unmapped_Reason'].str.contains(
+                        'No matches above', na=False)
+                               ]['URL'].unique().tolist())
+                suggestions.append({'type': 'nosynonym',
+                                    'title': 'URLs with no topic matches',
+                                    'est_gain': 0, 'count': no_match,
+                                    'applied': False, 'skipped': False,
+                                    'urls': nomatch_urls})
+
+        catmap_s = sorted([s for s in suggestions if s['type'] == 'catmap'],
+                          key=lambda x: x['est_gain'], reverse=True)
+        syn_s = sorted([s for s in suggestions if s['type'] == 'synonym'],
+                       key=lambda x: x['est_gain'], reverse=True)
+        info_s = [s for s in suggestions if s['type'] in ('data', 'nosynonym')]
+        return catmap_s + syn_s + info_s
+
+    def _advisor_render(self, suggestions, stats):
+        """Rebuild the stats strip and suggestion cards."""
+        self.advisor_analyse_btn.config(state='normal')
+        n_act = len([s for s in suggestions if s['type'] in ('catmap', 'synonym')])
+        self.advisor_status_label.config(
+            text=f"Analysis complete \u2014 {n_act} actionable suggestion"
+                 f"{'s' if n_act != 1 else ''}",
+            fg=self.colors['secondary'])
+        self._advisor_render_stats(stats)
+        for w in self.advisor_scroll_inner.winfo_children():
+            w.destroy()
+        visible = [s for s in suggestions if not s.get('skipped')]
+        if not visible:
+            tk.Label(
+                self.advisor_scroll_inner,
+                text="No actionable suggestions found. "
+                     "The match rate may already be at or near the target.",
+                font=('Segoe UI', 11, 'italic'),
+                bg=self.colors['background'], fg=self.colors['text_light']
+            ).pack(pady=40, padx=20)
+        else:
+            for idx, sug in enumerate(visible):
+                self._advisor_make_card(self.advisor_scroll_inner, sug, idx)
+        self.advisor_rerun_bar.pack(fill='x', padx=10, pady=(4, 8))
+        self.advisor_scroll_inner.update_idletasks()
+        self.advisor_canvas.configure(
+            scrollregion=self.advisor_canvas.bbox('all'))
+
+    def _advisor_render_stats(self, stats):
+        """Render the match rate stats strip."""
+        for w in self.advisor_stats_outer.winfo_children():
+            w.destroy()
+        if not stats or stats.get('total', 0) == 0:
+            return
+        sc = tk.Frame(self.advisor_stats_outer, bg=self.colors['card'],
+                      relief='solid', bd=1)
+        sc.pack(fill='x')
+        inner = tk.Frame(sc, bg=self.colors['card'])
+        inner.pack(fill='x', padx=16, pady=12)
+        rate = stats['match_rate']
+        target = stats['target']
+        rate_color = (self.colors['secondary'] if rate >= target
+                      else self.colors['primary'])
+
+        stat_row = tk.Frame(inner, bg=self.colors['card'])
+        stat_row.pack(fill='x', pady=(0, 8))
+
+        def _stat(parent, value, label, color=None):
+            b = tk.Frame(parent, bg=self.colors['card'])
+            b.pack(side='left', padx=(0, 28))
+            tk.Label(b, text=str(value), font=('Segoe UI', 18, 'bold'),
+                     bg=self.colors['card'],
+                     fg=color or self.colors['text']).pack(anchor='w')
+            tk.Label(b, text=label, font=('Segoe UI', 9),
+                     bg=self.colors['card'],
+                     fg=self.colors['text_light']).pack(anchor='w')
+
+        _stat(stat_row, f"{rate}%", "Match rate", rate_color)
+        _stat(stat_row, f"{stats['mapped']:,}", "URLs mapped")
+        _stat(stat_row, f"{stats['total']:,}", "Total URLs")
+        if stats['need'] > 0:
+            _stat(stat_row, f"+{stats['need']:,}",
+                  f"Needed for {int(target)}% target", self.colors['error'])
+        else:
+            _stat(stat_row, f"\u2713 {int(target)}%", "Target reached!",
+                  self.colors['secondary'])
+
+        filled = int(rate // 5)
+        bar = ('|' * filled) + ('.' * (20 - filled))
+        tk.Label(inner, text=f"[{bar}]  {rate}% of {int(target)}% target",
+                 font=('Courier New', 10),
+                 bg=self.colors['card'],
+                 fg=rate_color).pack(anchor='w')
+
+    def _advisor_make_card(self, parent, sug, idx):
+        """Render a single suggestion card."""
+        stype = sug['type']
+        accent = {'catmap': '#2563eb', 'synonym': '#10b981',
+                  'data': '#f59e0b', 'nosynonym': '#8b5cf6'}.get(stype, '#2563eb')
+        badge = {'catmap': 'CATEGORY MAP', 'synonym': 'SYNONYM',
+                 'data': 'DATA ISSUE', 'nosynonym': 'NO MATCH'}.get(
+            stype, stype.upper())
+
+        card = tk.Frame(parent, bg=self.colors['card'], relief='solid', bd=1)
+        card.pack(fill='x', padx=2, pady=(0, 5))
+        tk.Frame(card, bg=accent, width=5).pack(side='left', fill='y')
+
+        body = tk.Frame(card, bg=self.colors['card'])
+        body.pack(side='left', fill='x', expand=True, padx=14, pady=10)
+
+        hrow = tk.Frame(body, bg=self.colors['card'])
+        hrow.pack(fill='x')
+        tk.Label(hrow, text=f"  {badge}  ",
+                 font=('Segoe UI', 8, 'bold'),
+                 bg=accent, fg='white').pack(side='left')
+        tk.Label(hrow, text=f"  #{idx + 1}  {sug['title']}",
+                 font=('Segoe UI', 11, 'bold'),
+                 bg=self.colors['card'], fg=self.colors['text']).pack(side='left')
+        if sug.get('est_gain', 0) > 0:
+            tk.Label(hrow, text=f"  Est. +{sug['est_gain']} URLs",
+                     font=('Segoe UI', 10),
+                     bg=self.colors['card'],
+                     fg=self.colors['secondary']).pack(side='left')
+
+        if stype == 'catmap':
+            self._advisor_catmap_body(body, sug, card)
+        elif stype == 'synonym':
+            self._advisor_synonym_body(body, sug, card)
+        elif stype == 'data':
+            tk.Label(body,
+                     text=f"{sug['count']:,} URLs have no extractable keywords "
+                          "(all content columns empty). These cannot be improved "
+                          "via synonyms or category mapping \u2014 check Title, "
+                          "Summary, and Description columns.",
+                     font=('Segoe UI', 10),
+                     bg=self.colors['card'], fg=self.colors['text_light'],
+                     wraplength=1200, justify='left').pack(anchor='w', pady=(5, 0))
+        elif stype == 'nosynonym':
+            tk.Label(body,
+                     text=f"{sug['count']:,} URLs have keywords but no topics "
+                          "matched above the threshold. Try lowering the threshold "
+                          "or adding synonyms (check the Keyword Recommendations "
+                          "sheet).",
+                     font=('Segoe UI', 10),
+                     bg=self.colors['card'], fg=self.colors['text_light'],
+                     wraplength=1200, justify='left').pack(anchor='w', pady=(5, 0))
+
+        # ---- URL drill-down toggle ----
+        urls = sug.get('urls', [])
+        if urls:
+            tk.Frame(body, bg='#e2e8f0', height=1).pack(fill='x', pady=(8, 4))
+            toggle_row = tk.Frame(body, bg=self.colors['card'])
+            toggle_row.pack(fill='x', anchor='w')
+            url_panel = tk.Frame(body, bg=self.colors['card'])
+            _exp = [False]
+            n_u = len(urls)
+
+            def _toggle_urls(btn, panel=url_panel, exp=_exp,
+                             url_list=urls, nu=n_u):
+                exp[0] = not exp[0]
+                if exp[0]:
+                    panel.pack(fill='x', pady=(2, 4))
+                    if not panel.winfo_children():
+                        h = min(nu, 6)
+                        inner = tk.Frame(panel, bg=self.colors['card'])
+                        inner.pack(fill='x')
+                        vsb = tk.Scrollbar(inner, orient='vertical')
+                        hsb = tk.Scrollbar(inner, orient='horizontal')
+                        lb = tk.Listbox(
+                            inner, font=('Courier New', 8),
+                            bg='#f8fafc', fg=self.colors['text'],
+                            selectmode='browse', height=h,
+                            relief='solid', bd=1, activestyle='none',
+                            yscrollcommand=vsb.set,
+                            xscrollcommand=hsb.set)
+                        vsb.config(command=lb.yview)
+                        hsb.config(command=lb.xview)
+                        vsb.pack(side='right', fill='y')
+                        hsb.pack(side='bottom', fill='x')
+                        lb.pack(side='left', fill='both', expand=True)
+                        for u in url_list:
+                            lb.insert('end', u)
+                        copy_lbl = tk.Label(
+                            panel, text="",
+                            font=('Segoe UI', 8, 'italic'),
+                            bg=self.colors['card'],
+                            fg=self.colors['secondary'])
+                        copy_lbl.pack(anchor='w', pady=(1, 0))
+
+                        def _copy_url(listbox=lb, lbl=copy_lbl):
+                            sel = listbox.curselection()
+                            if not sel:
+                                lbl.config(
+                                    text="Select a URL first",
+                                    fg=self.colors['error'])
+                                return
+                            url = listbox.get(sel[0])
+                            self.root.clipboard_clear()
+                            self.root.clipboard_append(url)
+                            lbl.config(
+                                text=f"\u2713 Copied",
+                                fg=self.colors['secondary'])
+                            self.root.after(
+                                2000, lambda: lbl.config(text=""))
+
+                        tk.Button(
+                            panel, text="Copy selected URL",
+                            command=_copy_url,
+                            font=('Segoe UI', 8),
+                            bg='#e2e8f0', fg=self.colors['text'],
+                            relief='flat', padx=8, cursor='hand2'
+                        ).pack(anchor='w', pady=(2, 0))
+                    btn.config(text=f'\u25bc  Hide URLs ({nu:,})')
+                else:
+                    panel.pack_forget()
+                    btn.config(text=f'\u25b6  Show affected URLs ({nu:,})')
+                self.advisor_scroll_inner.update_idletasks()
+                self.advisor_canvas.configure(
+                    scrollregion=self.advisor_canvas.bbox('all'))
+
+            tgl_btn = tk.Button(
+                toggle_row,
+                text=f'\u25b6  Show affected URLs ({n_u:,})',
+                font=('Segoe UI', 9),
+                bg=self.colors['card'], fg='#2563eb',
+                relief='flat', cursor='hand2', padx=0)
+            tgl_btn.config(command=lambda b=tgl_btn: _toggle_urls(b))
+            tgl_btn.pack(side='left')
+
+    def _advisor_catmap_body(self, parent, sug, card):
+        """Category mapping suggestion body."""
+        tk.Label(parent,
+                 text=f"{sug['url_count']:,} URLs have Salesforce product "
+                      f'"{sug["sf_product"]}" which is not in category_mapping.json.',
+                 font=('Segoe UI', 10),
+                 bg=self.colors['card'], fg=self.colors['text_light'],
+                 wraplength=1200, justify='left').pack(anchor='w', pady=(5, 4))
+
+        row = tk.Frame(parent, bg=self.colors['card'])
+        row.pack(anchor='w', fill='x')
+        tk.Label(row, text="Map to:", font=('Segoe UI', 10),
+                 bg=self.colors['card']).pack(side='left', padx=(0, 6))
+        all_products = self._advisor_get_taxonomy_products()
+        target_var = tk.StringVar(value=sug.get('suggested_target', ''))
+        combo = ttk.Combobox(row, textvariable=target_var,
+                             values=all_products, width=38, font=('Segoe UI', 10))
+        combo.pack(side='left', padx=(0, 8))
+
+        null_var = tk.BooleanVar(value=False)
+
+        def _toggle_null():
+            if null_var.get():
+                combo.config(state='disabled')
+                target_var.set('')
+            else:
+                combo.config(state='normal')
+
+        tk.Checkbutton(row, text="Filter out (null)",
+                       variable=null_var, command=_toggle_null,
+                       font=('Segoe UI', 9),
+                       bg=self.colors['card']).pack(side='left', padx=(0, 8))
+        status_lbl = tk.Label(row, text="",
+                              font=('Segoe UI', 9, 'italic'),
+                              bg=self.colors['card'],
+                              fg=self.colors['secondary'])
+        status_lbl.pack(side='right', padx=(8, 0))
+        widgets = {'target_var': target_var, 'null_var': null_var,
+                   'combo': combo, 'status_lbl': status_lbl}
+
+        btn_row = tk.Frame(parent, bg=self.colors['card'])
+        btn_row.pack(anchor='w', pady=(4, 0))
+        apply_btn = tk.Button(
+            btn_row, text="\u2713 Apply Fix",
+            command=lambda s=sug, w=widgets: self._advisor_apply_catmap(s, w),
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['secondary'], fg='white',
+            relief='flat', padx=12, cursor='hand2')
+        apply_btn.pack(side='left', padx=(0, 6))
+        widgets['apply_btn'] = apply_btn
+        tk.Button(btn_row, text="Skip",
+                  command=lambda s=sug, c=card: self._advisor_skip(s, c),
+                  font=('Segoe UI', 9),
+                  bg='#94a3b8', fg='white',
+                  relief='flat', padx=8, cursor='hand2').pack(side='left')
+
+    def _advisor_synonym_body(self, parent, sug, card):
+        """Synonym suggestion body."""
+        kw_text = ',  '.join(f'"{kw}" (\xd7{freq})' for kw, freq in sug['keywords'])
+        tk.Label(parent,
+                 text="Keywords that near-matched but are not yet in synonyms.json:",
+                 font=('Segoe UI', 10),
+                 bg=self.colors['card'],
+                 fg=self.colors['text_light']).pack(anchor='w', pady=(5, 2))
+        tk.Label(parent,
+                 text=kw_text,
+                 font=('Segoe UI', 10, 'italic'),
+                 bg=self.colors['card'], fg=self.colors['text'],
+                 wraplength=1200, justify='left').pack(anchor='w')
+
+        btn_row = tk.Frame(parent, bg=self.colors['card'])
+        btn_row.pack(anchor='w', pady=(6, 0), fill='x')
+        status_lbl = tk.Label(btn_row, text="",
+                              font=('Segoe UI', 9, 'italic'),
+                              bg=self.colors['card'],
+                              fg=self.colors['secondary'])
+        status_lbl.pack(side='right')
+        tk.Button(btn_row, text="Skip",
+                  command=lambda s=sug, c=card: self._advisor_skip(s, c),
+                  font=('Segoe UI', 9),
+                  bg='#94a3b8', fg='white',
+                  relief='flat', padx=8, cursor='hand2').pack(side='left', padx=(0, 6))
+        apply_btn = tk.Button(
+            btn_row, text="\u2713 Apply Synonyms",
+            command=lambda s=sug, lbl=status_lbl: self._advisor_apply_synonym(s, lbl),
+            font=('Segoe UI', 9, 'bold'),
+            bg=self.colors['secondary'], fg='white',
+            relief='flat', padx=12, cursor='hand2')
+        apply_btn.pack(side='left')
+        sug['_apply_btn'] = apply_btn
+
+    def _advisor_skip(self, sug, card):
+        """Mark suggestion as skipped and remove its card."""
+        sug['skipped'] = True
+        try:
+            card.destroy()
+        except Exception:
+            pass
+        try:
+            self.advisor_scroll_inner.update_idletasks()
+            self.advisor_canvas.configure(
+                scrollregion=self.advisor_canvas.bbox('all'))
+        except Exception:
+            pass
+
+    def _advisor_get_taxonomy_products(self):
+        """Return taxonomy Product names for the catmap dropdown.
+
+        Resolves the taxonomy file for the country selected in Campaign
+        Assistant, so the products always match the active country.
+        """
+        country_code = self.advisor_country.get() if hasattr(
+            self, 'advisor_country') else self.selected_country.get()
+
+        # Derive the taxonomy path for the selected country
+        tax = ''
+        try:
+            country = self.country_config.config['countries'].get(
+                country_code, {})
+            country_dir = (self.country_config.project_root
+                           / 'countries' / country_code)
+            tax = str(country_dir / country.get(
+                'files', {}).get('taxonomy', 'taxonomy.xlsx'))
+        except Exception:
+            pass
+
+        # Fall back to whatever is loaded in Setup tab
+        if not tax or not os.path.exists(tax):
+            tax = self.taxonomy_file.get()
+
+        if tax and os.path.exists(tax):
+            try:
+                df = pd.read_excel(tax, nrows=1000)
+                if 'Product' in df.columns:
+                    return sorted(
+                        p for p in df['Product'].dropna().astype(str).unique()
+                        if p.strip())
+            except Exception:
+                pass
+        return []
+
+    def _advisor_apply_catmap(self, sug, widgets):
+        """Write new entry to category_mapping.json."""
+        country = self.advisor_country.get()
+        catmap_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            'countries', country, 'category_mapping.json')
+        is_null = widgets['null_var'].get()
+        target = widgets['target_var'].get().strip()
+        if not is_null and not target:
+            widgets['status_lbl'].config(
+                text="Choose a product or check 'Filter out'",
+                fg=self.colors['error'])
+            return
+        try:
+            catmap = {}
+            if os.path.exists(catmap_path):
+                with open(catmap_path, encoding='utf-8') as f:
+                    catmap = json.load(f)
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                shutil.copy2(catmap_path,
+                             catmap_path.replace('.json', f'_backup_{ts}.json'))
+            catmap[sug['sf_product']] = None if is_null else target
+            with open(catmap_path, 'w', encoding='utf-8') as f:
+                json.dump(catmap, f, ensure_ascii=False, indent=2)
+            sug['applied'] = True
+            val = '(filter out)' if is_null else f'"{target}"'
+            widgets['status_lbl'].config(
+                text=f"\u2713 {sug['sf_product']} \u2192 {val}",
+                fg=self.colors['secondary'])
+            widgets['apply_btn'].config(state='disabled', bg='#94a3b8',
+                                        text='Applied')
+            widgets['combo'].config(state='disabled')
+        except Exception as e:
+            widgets['status_lbl'].config(
+                text=f"Error: {e}", fg=self.colors['error'])
+
+    def _advisor_apply_synonym(self, sug, status_lbl):
+        """Append new synonyms to synonyms.json."""
+        synonyms_path = sug.get('synonyms_path', '')
+        if not synonyms_path:
+            country = self.advisor_country.get()
+            synonyms_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'countries', country, 'synonyms.json')
+        try:
+            syn_data = {'synonyms': {}}
+            if os.path.exists(synonyms_path):
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                shutil.copy2(synonyms_path,
+                             synonyms_path.replace('.json', f'_backup_{ts}.json'))
+                with open(synonyms_path, encoding='utf-8') as f:
+                    syn_data = json.load(f)
+            topic = sug['topic']
+            syns = syn_data.setdefault('synonyms', {})
+            existing = {s.lower() for s in syns.get(topic, [])}
+            new_kws = [kw for kw, _ in sug['keywords'] if kw.lower() not in existing]
+            syns[topic] = syns.get(topic, []) + new_kws
+            with open(synonyms_path, 'w', encoding='utf-8') as f:
+                json.dump(syn_data, f, ensure_ascii=False, indent=2)
+            sug['applied'] = True
+            status_lbl.config(
+                text=f"\u2713 {len(new_kws)} synonym(s) added for '{topic}'",
+                fg=self.colors['secondary'])
+            if '_apply_btn' in sug:
+                sug['_apply_btn'].config(state='disabled', bg='#94a3b8',
+                                         text='Applied')
+        except Exception as e:
+            status_lbl.config(text=f"Error: {e}", fg=self.colors['error'])
+
+    def _advisor_rerun(self):
+        """Trigger matcher re-run and re-analyse afterwards."""
+        self._advisor_rerun_pending = True
+        self._advisor_baseline_stats = dict(self._advisor_stats)
+        self.notebook.select(0)  # Switch to Setup tab to show progress
+        self.root.after(200, self.run_matching)
+
+    def _advisor_on_run_complete(self):
+        """Called after matcher run: auto-populate match file; re-analyse if pending."""
+        last = getattr(self, 'last_match_output', None)
+        if not last:
+            return
+        if hasattr(self, 'advisor_match_file'):
+            self.advisor_match_file.set(last)
+        if hasattr(self, 'advisor_country'):
+            self.advisor_country.set(self.selected_country.get())
+        if getattr(self, '_advisor_rerun_pending', False):
+            self._advisor_rerun_pending = False
+            baseline = dict(getattr(self, '_advisor_baseline_stats', {}))
+            target = 80.0
+            if hasattr(self, 'advisor_target'):
+                try:
+                    target = float(self.advisor_target.get())
+                except ValueError:
+                    pass
+            country = self.selected_country.get()
+            if hasattr(self, 'advisor_analyse_btn'):
+                self.advisor_analyse_btn.config(state='disabled')
+            if hasattr(self, 'advisor_status_label'):
+                self.advisor_status_label.config(
+                    text="Re-analysing\u2026", fg=self.colors['primary'])
+            threading.Thread(
+                target=self._advisor_rerun_worker,
+                args=(last, country, target, baseline),
+                daemon=True).start()
+
+    def _advisor_rerun_worker(self, match_file, country, target_rate, baseline):
+        """Post-rerun analysis with before/after delta."""
+        try:
+            results_df = pd.read_excel(match_file, sheet_name='Results', dtype=str)
+            results_df = results_df.fillna('')
+        except Exception as e:
+            err = str(e)
+            self.root.after(0, lambda: (
+                self.advisor_analyse_btn.config(state='normal'),
+                self.advisor_status_label.config(
+                    text=f"Error re-analysing: {err}", fg=self.colors['error'])))
+            return
+        try:
+            recs_df = pd.read_excel(match_file,
+                                    sheet_name='Keyword Recommendations', dtype=str)
+            recs_df = recs_df.fillna('')
+        except Exception:
+            recs_df = pd.DataFrame()
+        base = os.path.dirname(os.path.abspath(__file__))
+        synonyms_path = os.path.join(base, 'countries', country, 'synonyms.json')
+        catmap_path = os.path.join(base, 'countries', country, 'category_mapping.json')
+        new_stats = self._advisor_compute_stats(results_df, target_rate)
+        suggestions = self._advisor_generate_suggestions(
+            results_df, recs_df, synonyms_path, catmap_path)
+        self._advisor_stats = new_stats
+        self._advisor_suggestions = suggestions
+        old_rate = baseline.get('match_rate', 0)
+        new_rate = new_stats['match_rate']
+        delta = round(new_rate - old_rate, 1)
+        gained = new_stats['mapped'] - baseline.get('mapped', 0)
+        sign = '\u2191' if delta >= 0 else '\u2193'
+        msg = (f"Re-run: {new_rate}%  {sign}{abs(delta):.1f}pp"
+               f"  (+{gained} URLs mapped)")
+
+        def _done():
+            self._advisor_render(suggestions, new_stats)
+            self.advisor_status_label.config(
+                text=msg,
+                fg=self.colors['secondary'] if delta >= 0 else self.colors['error'])
+            self.notebook.select(self.advisor_frame)
+        self.root.after(0, _done)
+
+    # ==================== WORKFLOW GUIDE TAB ====================
+
+    # ==================== AI ASSISTANT TAB ====================
+
+    def create_workflow_tab(self, notebook):
+        """Create Workflow Guide tab — in-app process guide with navigation buttons."""
+        frame = tk.Frame(notebook, bg=self.colors['background'])
+        notebook.add(frame, text='   Workflow  ')
+
+        # Scrollable canvas
+        canvas = tk.Canvas(frame, bg=self.colors['background'], highlightthickness=0)
+        vsb = tk.Scrollbar(frame, orient='vertical', command=canvas.yview)
+        inner = tk.Frame(canvas, bg=self.colors['background'])
+        inner.bind('<Configure>',
+                   lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.bind('<MouseWheel>',
+                    lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), 'units'))
+        vsb.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+
+        # ── Header bar ───────────────────────────────────────────────────────
+        hbar = tk.Frame(inner, bg=self.colors['card'], relief='solid', bd=1)
+        hbar.pack(fill='x', padx=10, pady=(10, 0))
+        hbar_in = tk.Frame(hbar, bg=self.colors['card'])
+        hbar_in.pack(fill='x', padx=14, pady=9)
+        tk.Label(hbar_in, text="Workflow Guide",
+                 font=('Segoe UI', 13, 'bold'),
+                 bg=self.colors['card'], fg=self.colors['text']).pack(side='left')
+        tk.Label(hbar_in,
+                 text="  \u2014  end-to-end process, decision trees, and quick reference",
+                 font=('Segoe UI', 9),
+                 bg=self.colors['card'], fg=self.colors['text_light']).pack(side='left')
+        tk.Button(hbar_in, text="Open Full Guide in browser",
+                  command=self._wf_open_html,
+                  font=('Segoe UI', 9), bg=self.colors['primary'], fg='white',
+                  relief='flat', padx=12, cursor='hand2').pack(side='right')
+
+        content = tk.Frame(inner, bg=self.colors['background'])
+        content.pack(fill='x', padx=10, pady=(8, 0))
+
+        # ── Section 1: The improvement loop ──────────────────────────────────
+        self._wf_section_hdr(content, "1", "The improvement loop",
+                             "Run \u2192 analyse \u2192 fix \u2192 repeat until \u226580% match rate")
+
+        loop_steps = [
+            ("Prepare input files",
+             "Import your Salesforce CSV via the Setup tab. The extractor generates a "
+             "semantic carriers xlsx with keywords. Select your taxonomy file.",
+             "Setup", "#2563eb"),
+            ("Run the matcher",
+             "Click Run Matching. Output is auto-saved as "
+             "taxonomy_match_{CC}_{YYYYMMDD_HHMM}.xlsx — each run gets its own file.",
+             "Setup", "#2563eb"),
+            ("Check match rate & diagnose unmapped",
+             "Switch to Campaign Assistant \u2192 Auto-fill \u2192 Analyse. "
+             "The stats strip shows your current rate vs target. "
+             "Ranked fix suggestions appear automatically.",
+             "Campaign", "#10b981"),
+            ("Apply fixes",
+             "Click \u2713 Apply Fix (category mapping) or \u2713 Apply Synonyms on each "
+             "suggestion card. Use Category Mapping tab for manual mapping edits, "
+             "Synonym Editor for direct synonym edits.",
+             "Campaign", "#10b981"),
+            ("Re-run the matcher",
+             "Click Re-run Matcher at the bottom of Campaign Assistant, or go back to "
+             "Setup tab and click Run Matching. The before/after delta is shown automatically.",
+             "Setup", "#2563eb"),
+            ("Generate Gap Analysis (periodic)",
+             "Reports tab \u2192 Generate Gap Analysis Report. Tracks coverage, phantom topics, "
+             "and never-matched topics across iterations.",
+             "Reports", "#8b5cf6"),
+        ]
+
+        loop_card = tk.Frame(content, bg=self.colors['card'], relief='solid', bd=1)
+        loop_card.pack(fill='x', pady=(0, 10))
+
+        for i, (title, desc, nav_kw, color) in enumerate(loop_steps):
+            is_last = (i == len(loop_steps) - 1)
+            row = tk.Frame(loop_card, bg=self.colors['card'])
+            row.pack(fill='x', padx=14, pady=(12 if i == 0 else 6, 6 if not is_last else 12))
+
+            # Step number circle
+            c = tk.Canvas(row, width=28, height=28, bg=self.colors['card'],
+                          highlightthickness=0)
+            c.pack(side='left', anchor='n', padx=(0, 12), pady=2)
+            c.create_oval(1, 1, 27, 27, fill=color, outline='')
+            c.create_text(14, 14, text=str(i + 1), fill='white',
+                          font=('Segoe UI', 10, 'bold'))
+
+            # Content
+            body = tk.Frame(row, bg=self.colors['card'])
+            body.pack(side='left', fill='x', expand=True)
+
+            title_row = tk.Frame(body, bg=self.colors['card'])
+            title_row.pack(fill='x')
+            tk.Label(title_row, text=title,
+                     font=('Segoe UI', 11, 'bold'),
+                     bg=self.colors['card'], fg=self.colors['text']).pack(side='left')
+            tk.Button(title_row, text=f"\u2192 {nav_kw} tab",
+                      command=lambda k=nav_kw: self._wf_goto(k),
+                      font=('Segoe UI', 8), bg=color, fg='white',
+                      relief='flat', padx=8, pady=1,
+                      cursor='hand2').pack(side='right')
+
+            tk.Label(body, text=desc,
+                     font=('Segoe UI', 10),
+                     bg=self.colors['card'], fg=self.colors['text_light'],
+                     wraplength=740, justify='left').pack(anchor='w', pady=(2, 0))
+
+            if not is_last:
+                tk.Frame(loop_card, bg=self.colors['border'],
+                         height=1).pack(fill='x', padx=54)
+
+        # ── Section 2: Unmapped_Reason decision tree ──────────────────────────
+        self._wf_section_hdr(content, "2", "What does Unmapped_Reason mean?",
+                             "Three root causes \u2014 three different fixes")
+
+        reasons = [
+            ("#2563eb", "Product filter excluded\n(semantic Product: X)",
+             "The Salesforce product code X is not in category_mapping.json. "
+             "The matcher can't route the article to a taxonomy product, so it's excluded.\n\n"
+             "Fix: add X \u2192 taxonomy product in the Category Mapping tab, "
+             "or let Campaign Assistant suggest it automatically.",
+             "Category Mapping"),
+            ("#10b981", "No matches above X% threshold",
+             "Keywords exist but none scored \u226580% against any topic. "
+             "The article language doesn't match taxonomy wording.\n\n"
+             "Fix: add synonyms bridging the gap (Synonym Editor tab), "
+             "or lower the threshold on Setup tab. "
+             "Campaign Assistant lists the highest-value synonyms to add.",
+             "Synonym Editor"),
+            ("#f59e0b", "No keywords extracted from row",
+             "All content columns (Title, Summary, Description, Keyword 1\u201312) "
+             "are empty. The matcher has nothing to work with.\n\n"
+             "Fix: populate content columns in the source file "
+             "and re-run the keyword extractor. "
+             "Cannot be fixed via synonyms or category mapping.",
+             None),
+        ]
+
+        for accent, reason_title, explanation, nav_kw in reasons:
+            r_card = tk.Frame(content, bg=self.colors['card'], relief='solid', bd=1)
+            r_card.pack(fill='x', pady=(0, 6))
+            tk.Frame(r_card, bg=accent, height=4).pack(fill='x')
+
+            r_inner = tk.Frame(r_card, bg=self.colors['card'])
+            r_inner.pack(fill='x', padx=14, pady=10)
+
+            r_hrow = tk.Frame(r_inner, bg=self.colors['card'])
+            r_hrow.pack(fill='x')
+            tk.Label(r_hrow, text=f"  {reason_title.replace(chr(10), '  ')}  ",
+                     font=('Segoe UI', 8, 'bold'), bg=accent, fg='white').pack(side='left')
+            if nav_kw:
+                tk.Button(r_hrow, text=f"\u2192 {nav_kw} tab",
+                          command=lambda k=nav_kw: self._wf_goto(k),
+                          font=('Segoe UI', 8), bg=accent, fg='white',
+                          relief='flat', padx=8, pady=1,
+                          cursor='hand2').pack(side='right')
+
+            tk.Label(r_inner, text=explanation,
+                     font=('Segoe UI', 10),
+                     bg=self.colors['card'], fg=self.colors['text_light'],
+                     wraplength=780, justify='left').pack(anchor='w', pady=(6, 0))
+
+        # ── Section 3: Config file quick reference ────────────────────────────
+        self._wf_section_hdr(content, "3", "What controls what?",
+                             "Which file to edit for each type of fix")
+
+        ref_rows = [
+            ("Salesforce product \u2192 taxonomy product routing",
+             "countries/{CC}/category_mapping.json",
+             "Category Mapping tab \u2192 Add / Edit rows",
+             "Category Mapping"),
+            ("Keyword synonyms for taxonomy topics",
+             "countries/{CC}/synonyms.json",
+             "Synonym Editor tab  or  Campaign Assistant \u2192 Apply Synonyms",
+             "Synonym Editor"),
+            ("Product name aliases",
+             "countries/{CC}/synonyms.json  \u2192  product_synonyms",
+             "Synonym Editor tab \u2192 product_synonyms section",
+             "Synonym Editor"),
+            ("Noise phrases filtered before matching",
+             "countries/{CC}/noise_phrases.json",
+             "Noise Phrases tab \u2192 Add / Remove",
+             "Noise Phrases"),
+            ("Fuzzy similarity threshold",
+             "config.yaml  settings.similarity_threshold",
+             "Setup tab \u2192 Threshold slider",
+             "Setup"),
+        ]
+
+        ref_card = tk.Frame(content, bg=self.colors['card'], relief='solid', bd=1)
+        ref_card.pack(fill='x', pady=(0, 10))
+
+        # Table header
+        hdr_row = tk.Frame(ref_card, bg='#f1f5f9')
+        hdr_row.pack(fill='x')
+        for hdr_text, width in [("What you want to change", 30),
+                                  ("Config file", 28),
+                                  ("How to edit", 28)]:
+            tk.Label(hdr_row, text=hdr_text,
+                     font=('Segoe UI', 9, 'bold'), bg='#f1f5f9',
+                     fg=self.colors['text_light'], anchor='w',
+                     width=width).pack(side='left', padx=(12, 0), pady=6)
+        tk.Frame(ref_card, bg=self.colors['border'], height=1).pack(fill='x')
+
+        for i, (what, cfg_file, how, nav_kw) in enumerate(ref_rows):
+            row_bg = self.colors['card'] if i % 2 == 0 else '#f8fafc'
+            ref_row = tk.Frame(ref_card, bg=row_bg)
+            ref_row.pack(fill='x')
+            tk.Label(ref_row, text=what,
+                     font=('Segoe UI', 9), bg=row_bg,
+                     fg=self.colors['text'], anchor='w',
+                     width=30).pack(side='left', padx=(12, 0), pady=6)
+            tk.Label(ref_row, text=cfg_file,
+                     font=('Courier New', 8), bg=row_bg,
+                     fg='#6d28d9', anchor='w',
+                     width=28).pack(side='left', padx=(12, 0), pady=6)
+            how_f = tk.Frame(ref_row, bg=row_bg)
+            how_f.pack(side='left', fill='x', expand=True, padx=(12, 8))
+            tk.Label(how_f, text=how,
+                     font=('Segoe UI', 9), bg=row_bg,
+                     fg=self.colors['text_light'], anchor='w').pack(side='left')
+            if nav_kw:
+                tk.Button(how_f, text=f"\u2192 Go",
+                          command=lambda k=nav_kw: self._wf_goto(k),
+                          font=('Segoe UI', 8), bg=self.colors['primary'], fg='white',
+                          relief='flat', padx=6, pady=0,
+                          cursor='hand2').pack(side='left', padx=(8, 0))
+            tk.Frame(ref_card, bg=self.colors['border'], height=1).pack(fill='x')
+
+        # ── Section 4: Common mistakes ────────────────────────────────────────
+        self._wf_section_hdr(content, "4", "Common mistakes",
+                             "How to recover from the most frequent problems")
+
+        mistakes = [
+            ("Added synonyms but match rate didn't improve",
+             "The synonym key must match the taxonomy topic name exactly (case-sensitive). "
+             "Open Synonym Editor and check the topic key against the taxonomy. "
+             "Also check: is a product filter still blocking those URLs?"),
+            ("Output always shows 0% match rate or looks wrong",
+             "Files may be swapped — semantic carriers and taxonomy are in the wrong fields. "
+             "Click Swap Files on Setup tab, or re-select them manually."),
+            ("Applied a category mapping fix but URLs are still unmapped",
+             "The JSON was updated but the existing output file is not retroactively changed. "
+             "Re-run the matcher (Setup tab or Campaign Assistant \u2192 Re-run Matcher)."),
+            ("Match rate in Console log doesn't match Gap Analysis",
+             "The Console log shows per-row match rate (includes multi-segment duplicates). "
+             "Gap Analysis and Campaign Assistant show per-unique-URL. "
+             "Always use per-unique-URL as the authoritative figure."),
+            ("Lots of irrelevant keywords polluting results",
+             "Add the noise prefix to the Noise Phrases tab for the country (e.g. "
+             "'dit artikel' filters any keyword starting with that phrase). "
+             "Re-run after saving."),
+        ]
+
+        for title_m, desc_m in mistakes:
+            m = tk.Frame(content, bg=self.colors['card'], relief='solid', bd=1)
+            m.pack(fill='x', pady=(0, 6))
+            tk.Frame(m, bg='#f59e0b', height=3).pack(fill='x')
+            m_in = tk.Frame(m, bg=self.colors['card'])
+            m_in.pack(fill='x', padx=14, pady=8)
+            tk.Label(m_in, text=f"\u26a0  {title_m}",
+                     font=('Segoe UI', 10, 'bold'),
+                     bg=self.colors['card'], fg=self.colors['text']).pack(anchor='w')
+            tk.Label(m_in, text=desc_m,
+                     font=('Segoe UI', 10),
+                     bg=self.colors['card'], fg=self.colors['text_light'],
+                     wraplength=780, justify='left').pack(anchor='w', pady=(3, 0))
+
+        # Bottom padding
+        tk.Frame(content, bg=self.colors['background'], height=20).pack()
+
+    def _wf_section_hdr(self, parent, num, title, subtitle):
+        """Render a numbered section header for the Workflow tab."""
+        hdr = tk.Frame(parent, bg=self.colors['background'])
+        hdr.pack(fill='x', pady=(18, 8))
+        c = tk.Canvas(hdr, width=30, height=30, bg=self.colors['background'],
+                      highlightthickness=0)
+        c.pack(side='left', padx=(0, 10))
+        c.create_oval(1, 1, 29, 29, fill=self.colors['primary'], outline='')
+        c.create_text(15, 15, text=num, fill='white', font=('Segoe UI', 11, 'bold'))
+        tf = tk.Frame(hdr, bg=self.colors['background'])
+        tf.pack(side='left')
+        tk.Label(tf, text=title,
+                 font=('Segoe UI', 13, 'bold'),
+                 bg=self.colors['background'], fg=self.colors['text']).pack(anchor='w')
+        tk.Label(tf, text=subtitle,
+                 font=('Segoe UI', 9),
+                 bg=self.colors['background'], fg=self.colors['text_light']).pack(anchor='w')
+
+    def _wf_goto(self, keyword):
+        """Select a notebook tab whose label contains keyword (case-insensitive)."""
+        for tab_id in self.notebook.tabs():
+            if keyword.lower() in self.notebook.tab(tab_id, 'text').lower():
+                self.notebook.select(tab_id)
+                return
+
+    def _wf_open_html(self):
+        """Open WORKFLOW_GUIDE.html in the default browser."""
+        guide = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             'WORKFLOW_GUIDE.html')
+        if os.path.exists(guide):
+            os.startfile(guide)
+        else:
+            messagebox.showinfo("Workflow Guide",
+                                "WORKFLOW_GUIDE.html not found in the application folder.")
+
     def create_about_tab(self, notebook):
         """Create about tab."""
         frame = tk.Frame(notebook, bg=self.colors['background'])
@@ -2391,7 +4292,7 @@ class TaxonomyMapperGUI:
         countries_list = ", ".join([c['code'] for c in self.available_countries])
 
         info = [
-            ("Application:", "NL Taxonomy Mapper"),
+            ("Application:", "Taxonomy Mapper"),
             ("Version:", f"V{VERSION}"),
             ("Released:", VERSION_DATE),
             ("Changes:", VERSION_NOTES),
@@ -2656,7 +4557,7 @@ class TaxonomyMapperGUI:
         ).pack(side='left')
 
         # Country dropdown
-        country_dropdown = ttk.Combobox(
+        self.country_dropdown = ttk.Combobox(
             row,
             textvariable=self.selected_country,
             values=[c['code'] for c in self.available_countries],
@@ -2664,7 +4565,7 @@ class TaxonomyMapperGUI:
             font=('Segoe UI', 10),
             width=15
         )
-        country_dropdown.pack(side='left', padx=(0, 10))
+        self.country_dropdown.pack(side='left', padx=(0, 10))
 
         # Display full name as label
         self.country_label = tk.Label(
@@ -2675,6 +4576,452 @@ class TaxonomyMapperGUI:
             fg=self.colors['text_light']
         )
         self.country_label.pack(side='left', fill='x', expand=True)
+
+        tk.Button(
+            row, text="+ New Country",
+            command=self.open_new_country_wizard,
+            font=('Segoe UI', 9),
+            bg=self.colors['secondary'], fg='white',
+            relief='flat', padx=10, pady=3, cursor='hand2'
+        ).pack(side='right', padx=(10, 0))
+
+    def open_new_country_wizard(self):
+        """Open a 3-step modal wizard for scaffolding a new country."""
+        # --- State variables ---
+        wiz_code = tk.StringVar(value='')
+        wiz_name = tk.StringVar(value='')
+        wiz_language = tk.StringVar(value='')
+        wiz_description = tk.StringVar(value='')
+        wiz_threshold = tk.IntVar(value=80)
+        wiz_taxonomy = tk.StringVar(value='')
+        wiz_semantic = tk.StringVar(value='')
+        step_state = [1]  # mutable container for current step
+
+        # --- Window setup ---
+        dialog = tk.Toplevel(self.root)
+        dialog.title("New Country Setup")
+        dialog.geometry("560x500")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        # Center on parent
+        dialog.update_idletasks()
+        px = self.root.winfo_x() + (self.root.winfo_width() - 560) // 2
+        py = self.root.winfo_y() + (self.root.winfo_height() - 500) // 2
+        dialog.geometry(f"560x500+{px}+{py}")
+
+        # --- Fixed chrome ---
+        # 1. Header bar
+        header = tk.Frame(dialog, bg=self.colors['primary'], pady=12)
+        header.pack(fill='x')
+        tk.Label(header, text="New Country Setup",
+                 font=('Segoe UI', 14, 'bold'),
+                 bg=self.colors['primary'], fg='white').pack()
+        step_subtitle = tk.Label(header, text="Step 1 of 3: Basic Information",
+                                 font=('Segoe UI', 9),
+                                 bg=self.colors['primary'], fg='#bfdbfe')
+        step_subtitle.pack()
+
+        # 2. Progress pills
+        pip_frame = tk.Frame(dialog, bg=self.colors['background'], pady=10)
+        pip_frame.pack(fill='x')
+        pip_labels = []
+        pip_texts = ["1  Basic Info", "2  Files", "3  Review"]
+        for i, txt in enumerate(pip_texts):
+            lbl = tk.Label(pip_frame, text=txt,
+                           font=('Segoe UI', 9, 'bold'),
+                           padx=14, pady=4,
+                           relief='flat', bd=0)
+            lbl.pack(side='left', padx=6)
+            pip_labels.append(lbl)
+
+        # 3. Content area (will be rebuilt each step)
+        content_area = tk.Frame(dialog, bg=self.colors['background'])
+        content_area.pack(fill='both', expand=True, padx=20, pady=5)
+        content_ref = [content_area]  # mutable ref so inner funcs can replace it
+
+        # 4. Nav frame (bottom)
+        nav_frame = tk.Frame(dialog, bg=self.colors['background'], pady=10)
+        nav_frame.pack(fill='x', padx=20)
+
+        status_label = tk.Label(nav_frame, text='',
+                                font=('Segoe UI', 9),
+                                bg=self.colors['background'], fg='#ef4444')
+        status_label.pack(side='left')
+
+        btn_cancel = tk.Button(nav_frame, text='Cancel',
+                               command=dialog.destroy,
+                               font=('Segoe UI', 9),
+                               bg=self.colors['border'], fg=self.colors['text'],
+                               relief='flat', padx=12, pady=4, cursor='hand2')
+        btn_cancel.pack(side='left', padx=(8, 0))
+
+        btn_next = tk.Button(nav_frame, text='Next →',
+                             font=('Segoe UI', 9, 'bold'),
+                             bg=self.colors['primary'], fg='white',
+                             relief='flat', padx=14, pady=4, cursor='hand2')
+        btn_next.pack(side='right')
+
+        btn_back = tk.Button(nav_frame, text='← Back',
+                             font=('Segoe UI', 9),
+                             bg=self.colors['border'], fg=self.colors['text'],
+                             relief='flat', padx=12, pady=4, cursor='hand2',
+                             state='disabled')
+        btn_back.pack(side='right', padx=(0, 6))
+
+        # --- Helper: update pip colours ---
+        def _update_pips(current):
+            for i, lbl in enumerate(pip_labels):
+                n = i + 1
+                if n == current:
+                    lbl.config(bg=self.colors['primary'], fg='white')
+                elif n < current:
+                    lbl.config(bg=self.colors['secondary'], fg='white')
+                else:
+                    lbl.config(bg=self.colors['border'],
+                               fg=self.colors['text_light'])
+
+        # --- Step builders ---
+        def _build_step1():
+            frame = content_ref[0]
+            card = tk.Frame(frame, bg=self.colors['card'],
+                            relief='flat', bd=1)
+            card.pack(fill='both', expand=True, pady=5)
+            inner = tk.Frame(card, bg=self.colors['card'])
+            inner.pack(fill='both', expand=True, padx=20, pady=15)
+
+            def _field(parent, label, var, row_idx, placeholder='', maxlen=None):
+                tk.Label(parent, text=label,
+                         font=('Segoe UI', 9, 'bold'),
+                         bg=self.colors['card'],
+                         fg=self.colors['text'],
+                         anchor='w', width=20).grid(
+                    row=row_idx, column=0, sticky='w', pady=6)
+                ent = tk.Entry(parent, textvariable=var,
+                               font=('Segoe UI', 10),
+                               relief='solid', bd=1, width=28)
+                ent.grid(row=row_idx, column=1, sticky='ew', padx=(0, 4))
+                if placeholder:
+                    tk.Label(parent, text=placeholder,
+                             font=('Segoe UI', 8),
+                             bg=self.colors['card'],
+                             fg=self.colors['text_light']).grid(
+                        row=row_idx, column=2, sticky='w', padx=4)
+                return ent
+
+            inner.columnconfigure(1, weight=1)
+
+            code_ent = _field(inner, "Country Code *", wiz_code, 0,
+                              placeholder="e.g. DE")
+            # Auto-uppercase and max-2-char enforcement
+            def _on_code_key(*_):
+                val = wiz_code.get().upper()[:2]
+                wiz_code.set(val)
+                code_ent.icursor(tk.END)
+            code_ent.bind('<KeyRelease>', _on_code_key)
+
+            _field(inner, "Country Name *", wiz_name, 1,
+                   placeholder="e.g. Germany")
+            _field(inner, "Language *", wiz_language, 2,
+                   placeholder="e.g. German")
+            _field(inner, "Description", wiz_description, 3,
+                   placeholder="optional")
+
+            # Threshold slider
+            tk.Label(inner, text="Similarity Threshold *",
+                     font=('Segoe UI', 9, 'bold'),
+                     bg=self.colors['card'],
+                     fg=self.colors['text'],
+                     anchor='w', width=20).grid(
+                row=4, column=0, sticky='w', pady=6)
+            slider_frame = tk.Frame(inner, bg=self.colors['card'])
+            slider_frame.grid(row=4, column=1, sticky='ew')
+            thresh_label = tk.Label(slider_frame,
+                                    text=f"{wiz_threshold.get()}%",
+                                    font=('Segoe UI', 9, 'bold'),
+                                    bg=self.colors['card'],
+                                    fg=self.colors['primary'], width=5)
+            thresh_label.pack(side='right')
+
+            def _on_thresh(val):
+                thresh_label.config(text=f"{int(float(val))}%")
+            tk.Scale(slider_frame, from_=50, to=100,
+                     orient='horizontal',
+                     variable=wiz_threshold,
+                     command=_on_thresh,
+                     bg=self.colors['card'],
+                     highlightthickness=0,
+                     showvalue=False,
+                     length=200).pack(side='left', fill='x', expand=True)
+
+        def _build_step2():
+            frame = content_ref[0]
+            card = tk.Frame(frame, bg=self.colors['card'],
+                            relief='flat', bd=1)
+            card.pack(fill='both', expand=True, pady=5)
+            inner = tk.Frame(card, bg=self.colors['card'])
+            inner.pack(fill='both', expand=True, padx=20, pady=15)
+
+            def _file_row(parent, label, var, row_idx, filetypes):
+                tk.Label(parent, text=label,
+                         font=('Segoe UI', 9, 'bold'),
+                         bg=self.colors['card'],
+                         fg=self.colors['text'],
+                         anchor='w').grid(
+                    row=row_idx, column=0, sticky='w', pady=8, columnspan=3)
+                ent = tk.Entry(parent, textvariable=var,
+                               font=('Segoe UI', 9),
+                               relief='solid', bd=1)
+                ent.grid(row=row_idx + 1, column=0, sticky='ew', pady=(0, 4))
+
+                def _browse():
+                    path = filedialog.askopenfilename(
+                        title=f"Select {label}",
+                        filetypes=filetypes
+                    )
+                    if path:
+                        var.set(path)
+                tk.Button(parent, text='Browse',
+                          command=_browse,
+                          font=('Segoe UI', 8),
+                          bg=self.colors['primary'], fg='white',
+                          relief='flat', padx=8, pady=2, cursor='hand2').grid(
+                    row=row_idx + 1, column=1, sticky='w', padx=(6, 0), pady=(0, 4))
+                return ent
+
+            inner.columnconfigure(0, weight=1)
+
+            _file_row(inner, "Taxonomy File (.xlsx)", wiz_taxonomy, 0,
+                      [('Excel files', '*.xlsx'), ('All files', '*.*')])
+            _file_row(inner, "Semantic Carriers File (.xlsx)", wiz_semantic, 2,
+                      [('Excel files', '*.xlsx'), ('All files', '*.*')])
+
+            # Info box
+            info = tk.Frame(inner, bg='#ecfdf5', relief='flat', bd=1)
+            info.grid(row=4, column=0, columnspan=2, sticky='ew', pady=(10, 0))
+            tk.Label(info, text="ℹ  Leave blank to add files later via the Setup tab.",
+                     font=('Segoe UI', 9),
+                     bg='#ecfdf5', fg='#065f46',
+                     padx=10, pady=6).pack(anchor='w')
+
+        def _build_step3():
+            frame = content_ref[0]
+            card = tk.Frame(frame, bg=self.colors['card'],
+                            relief='flat', bd=1)
+            card.pack(fill='both', expand=True, pady=5)
+
+            code = wiz_code.get().upper()
+            name = wiz_name.get().strip()
+            lang = wiz_language.get().strip()
+            desc = wiz_description.get().strip()
+            thresh = wiz_threshold.get()
+            tax_path = wiz_taxonomy.get().strip()
+            sem_path = wiz_semantic.get().strip()
+
+            country_dir = os.path.join('countries', code)
+
+            lines = [
+                "  REVIEW — click 'Create Country' to apply\n",
+                f"  Country Code  : {code}",
+                f"  Country Name  : {name}",
+                f"  Language      : {lang}",
+                f"  Threshold     : {thresh}%",
+            ]
+            if desc:
+                lines.append(f"  Description   : {desc}")
+            lines.append("")
+            lines.append(f"  Directory     : {country_dir}/")
+            lines.append("  JSON files    :")
+            lines.append(f"    {country_dir}/synonyms.json")
+            lines.append(f"    {country_dir}/category_mapping.json")
+            lines.append(f"    {country_dir}/noise_phrases.json")
+            if tax_path:
+                lines.append(f"  Taxonomy      : copy → {country_dir}/taxonomy.xlsx")
+            else:
+                lines.append("  Taxonomy      : (not provided — add later)")
+            if sem_path:
+                lines.append(f"  Semantic file : copy → {country_dir}/semantic_carriers_list.xlsx")
+            else:
+                lines.append("  Semantic file : (not provided — add later)")
+            lines.append("")
+            lines.append("  config.yaml   : add entry for " + code)
+
+            txt = scrolledtext.ScrolledText(
+                card, font=('Consolas', 9),
+                bg='#f8fafc', fg=self.colors['text'],
+                relief='flat', bd=0,
+                wrap='word', state='normal',
+                height=14
+            )
+            txt.pack(fill='both', expand=True, padx=10, pady=10)
+            txt.insert('1.0', '\n'.join(lines))
+            txt.config(state='disabled')
+
+        # --- Validation ---
+        def _validate_step1():
+            code = wiz_code.get().upper().strip()
+            name = wiz_name.get().strip()
+            lang = wiz_language.get().strip()
+            if len(code) != 2 or not code.isalpha():
+                return False, "Country code must be exactly 2 letters (e.g. DE)"
+            existing = [c['code'] for c in self.available_countries]
+            if code in existing:
+                return False, f"Country code '{code}' already exists"
+            if not name:
+                return False, "Country Name is required"
+            if not lang:
+                return False, "Language is required"
+            return True, ""
+
+        def _validate_step2():
+            tax = wiz_taxonomy.get().strip()
+            sem = wiz_semantic.get().strip()
+            if tax:
+                if not os.path.isfile(tax):
+                    return False, "Taxonomy file not found"
+                if not tax.lower().endswith('.xlsx'):
+                    return False, "Taxonomy file must be an .xlsx file"
+            if sem:
+                if not os.path.isfile(sem):
+                    return False, "Semantic carriers file not found"
+                if not sem.lower().endswith('.xlsx'):
+                    return False, "Semantic carriers file must be an .xlsx file"
+            return True, ""
+
+        # --- Navigation ---
+        def _go_to_step(n):
+            step_state[0] = n
+            subtitles = {
+                1: "Step 1 of 3: Basic Information",
+                2: "Step 2 of 3: Files",
+                3: "Step 3 of 3: Review",
+            }
+            step_subtitle.config(text=subtitles[n])
+            _update_pips(n)
+            status_label.config(text='')
+
+            # Destroy and rebuild content area
+            content_ref[0].destroy()
+            new_area = tk.Frame(dialog, bg=self.colors['background'])
+            new_area.pack(fill='both', expand=True, padx=20, pady=5)
+            # Re-pack nav_frame after content (move to bottom)
+            nav_frame.pack_forget()
+            nav_frame.pack(fill='x', padx=20, pady=10)
+            content_ref[0] = new_area
+
+            if n == 1:
+                _build_step1()
+            elif n == 2:
+                _build_step2()
+            else:
+                _build_step3()
+
+            # Back button
+            btn_back.config(state='disabled' if n == 1 else 'normal')
+
+            # Next vs Create
+            if n == 3:
+                btn_next.config(text='Create Country',
+                                bg=self.colors['secondary'],
+                                command=_do_create)
+            else:
+                btn_next.config(text='Next →',
+                                bg=self.colors['primary'],
+                                command=_on_next)
+
+        def _on_next():
+            status_label.config(text='')
+            n = step_state[0]
+            if n == 1:
+                ok, msg = _validate_step1()
+                if not ok:
+                    status_label.config(text=msg)
+                    return
+                _go_to_step(2)
+            elif n == 2:
+                ok, msg = _validate_step2()
+                if not ok:
+                    status_label.config(text=msg)
+                    return
+                _go_to_step(3)
+
+        def _on_back():
+            _go_to_step(step_state[0] - 1)
+
+        def _do_create():
+            status_label.config(text='')
+            btn_next.config(state='disabled')
+            btn_back.config(state='disabled')
+            try:
+                code = wiz_code.get().upper().strip()
+                name = wiz_name.get().strip()
+                lang = wiz_language.get().strip()
+                desc = wiz_description.get().strip()
+                thresh = wiz_threshold.get()
+                tax_path = wiz_taxonomy.get().strip()
+                sem_path = wiz_semantic.get().strip()
+
+                from country_config import get_application_path
+                app_root = get_application_path()
+                country_dir = app_root / 'countries' / code
+                os.makedirs(country_dir, exist_ok=True)
+
+                # Write synonyms.json
+                with open(country_dir / 'synonyms.json', 'w', encoding='utf-8') as f:
+                    json.dump({"synonyms": {}, "product_synonyms": {}}, f,
+                              indent=2, ensure_ascii=False)
+
+                # Write category_mapping.json
+                with open(country_dir / 'category_mapping.json', 'w', encoding='utf-8') as f:
+                    json.dump({
+                        "mappings": {},
+                        "statistics": {
+                            "total_categories": 0,
+                            "mapped_categories": 0,
+                            "unmapped_categories": 0
+                        }
+                    }, f, indent=2, ensure_ascii=False)
+
+                # Write noise_phrases.json
+                with open(country_dir / 'noise_phrases.json', 'w', encoding='utf-8') as f:
+                    json.dump([], f, indent=2)
+
+                # Copy files if provided
+                if tax_path:
+                    shutil.copy2(tax_path, country_dir / 'taxonomy.xlsx')
+                if sem_path:
+                    shutil.copy2(sem_path, country_dir / 'semantic_carriers_list.xlsx')
+
+                # Register in config.yaml
+                self.country_config.add_country(code, name, lang, thresh, desc)
+
+                # Reload country list
+                self.country_config = CountryConfig()
+                self.available_countries = self.country_config.get_available_countries()
+                self.country_dropdown['values'] = [c['code'] for c in self.available_countries]
+                self.selected_country.set(code)
+
+                dialog.destroy()
+                self.log(f"Country {code} ({name}) created successfully")
+                messagebox.showinfo(
+                    "Country Created",
+                    f"Country '{code} — {name}' has been set up.\n\n"
+                    f"Directory: countries/{code}/\n\n"
+                    "Add your taxonomy and semantic carrier files via the Setup tab."
+                )
+
+            except Exception as e:
+                status_label.config(text=f"Error: {e}")
+                btn_next.config(state='normal')
+                btn_back.config(state='normal')
+
+        # Wire buttons
+        btn_next.config(command=_on_next)
+        btn_back.config(command=_on_back)
+
+        # Build first step
+        _update_pips(1)
+        _build_step1()
 
     def _get_country_display_name(self, code):
         """Get full display name for country code."""
@@ -2701,17 +5048,18 @@ class TaxonomyMapperGUI:
             if not self.taxonomy_file.get() or 'taxonomy' in self.taxonomy_file.get().lower():
                 self.taxonomy_file.set(files['taxonomy'])
 
-            # Update output filename with country code
+            # Update output filename with new country code.
+            # If the current name is still the default pattern, reset cleanly
+            # (the timestamp will be added fresh when Run is clicked).
             current_output = self.output_file.get()
-            if current_output:
-                # Remove old country code if present
+            if not current_output or self._is_default_output_filename(current_output):
+                self.output_file.set(f'taxonomy_match_{country_code}.xlsx')
+            else:
+                # User has a custom name — just swap the country code portion
                 base = current_output.replace('.xlsx', '')
                 for c in self.available_countries:
                     base = base.replace(f"_{c['code']}", "")
-                # Add new country code
                 self.output_file.set(f"{base}_{country_code}.xlsx")
-            else:
-                self.output_file.set(f'taxonomy_match_{country_code}.xlsx')
 
             self.log(f"Switched to {self._get_country_display_name(country_code)}")
 
@@ -2805,7 +5153,8 @@ class TaxonomyMapperGUI:
         """Reset form."""
         self.semantic_file.set('')
         self.taxonomy_file.set('')
-        self.output_file.set('taxonomy_match.xlsx')
+        cc = self.selected_country.get()
+        self.output_file.set(f'taxonomy_match_{cc}.xlsx' if cc else 'taxonomy_match.xlsx')
         self.threshold.set(80)
         self.clear_log()
         self.log("Form reset")
@@ -2870,6 +5219,14 @@ class TaxonomyMapperGUI:
         if not self.validate_inputs():
             return
             
+        # Auto-timestamp the output filename if it still matches the default pattern
+        if self._is_default_output_filename():
+            cc = self.selected_country.get()
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+            dir_part = os.path.dirname(self.output_file.get())
+            filename = f'taxonomy_match_{cc}_{timestamp}.xlsx'
+            self.output_file.set(os.path.join(dir_part, filename) if dir_part else filename)
+
         self.run_btn.config(state='disabled')
         self.is_processing = True
         self.progress.start(10)  # Speed: higher = faster animation
@@ -2884,7 +5241,7 @@ class TaxonomyMapperGUI:
         """Process matching."""
         try:
             self.log("=" * 50)
-            self.log("Starting NL Taxonomy Mapper V3")
+            self.log("Starting Taxonomy Mapper V3")
             self.log("=" * 50)
 
             matcher = TaxonomyMatcher(
@@ -2920,6 +5277,11 @@ class TaxonomyMapperGUI:
             self.log("=" * 50)
             self.log(" Completed successfully!")
             self.log("=" * 50)
+
+            # Store last match output for Reports tab auto-population
+            self.last_match_output = self.output_file.get()
+            self.root.after(0, self._auto_populate_reports_tab)
+            self.root.after(0, self._advisor_on_run_complete)
 
             # Save last used taxonomy file to config (for next session)
             taxonomy_path = self.taxonomy_file.get()
@@ -2973,6 +5335,202 @@ class TaxonomyMapperGUI:
 
         # Clear the status after 3 seconds
         self.root.after(3000, lambda: self.processing_status.config(text=""))
+
+    # ==================== AUTO-TIMESTAMP & REPORTS AUTO-POPULATE ====================
+
+    def _is_default_output_filename(self, filename=None):
+        """Return True if filename matches the auto-generated default pattern.
+
+        Matches:  taxonomy_match_{CC}.xlsx
+                  taxonomy_match_{CC}_YYYYMMDD_HHMM.xlsx
+        """
+        if filename is None:
+            filename = os.path.basename(self.output_file.get())
+        else:
+            filename = os.path.basename(filename)
+        return bool(re.match(r'^taxonomy_match_[A-Z]{2}(_\d{8}_\d{4})?\.xlsx$', filename, re.IGNORECASE))
+
+    def _on_tab_changed(self, event):
+        """Handle notebook tab change: auto-populate Reports; auto-load Category Mapping."""
+        selected = self.notebook.select()
+        if hasattr(self, 'reports_frame') and selected == str(self.reports_frame):
+            self._auto_populate_reports_tab()
+        # Use tab text for feature-tab auto-loads (avoids fragile index comparisons)
+        tab_text = ''
+        try:
+            tab_text = self.notebook.tab(selected, 'text')
+        except Exception:
+            pass
+
+        # Category Mapping: auto-load when first opened (no data yet)
+        if 'Category Mapping' in tab_text and hasattr(self, 'catmap_tree'):
+            if not getattr(self, 'catmap_data', None):
+                self.catmap_country.set(self.selected_country.get())
+                self._catmap_load()
+
+        # Noise Phrases: auto-load when first opened
+        if 'Noise Phrases' in tab_text and hasattr(self, 'noise_listbox'):
+            if not getattr(self, '_noise_phrases', None):
+                self.noise_country.set(self.selected_country.get())
+                self._noise_load()
+
+
+    def _auto_populate_reports_tab(self):
+        """Pre-fill Reports tab file pickers from the last completed match run."""
+        last_match = self.last_match_output
+        taxonomy = self.taxonomy_file.get()
+        semantic = self.semantic_file.get()
+
+        if last_match and os.path.exists(last_match):
+            self.topic_rec_match_file.set(last_match)
+            self.gap_analysis_match_file.set(last_match)
+
+        if taxonomy and os.path.exists(taxonomy):
+            self.topic_rec_taxonomy_file.set(taxonomy)
+            self.gap_analysis_taxonomy_file.set(taxonomy)
+
+        if semantic and os.path.exists(semantic):
+            self.gap_analysis_semantic_file.set(semantic)
+
+    # ==================== APPLY PATCHES METHODS ====================
+
+    def _browse_patch_file(self, var, title, filetypes=None):
+        """Browse for a patch/semantic file."""
+        if filetypes is None:
+            filetypes = [("JSON files", "*.json"), ("All files", "*.*")]
+        initial_dir = os.path.dirname(var.get()) if var.get() else None
+        path = filedialog.askopenfilename(title=title, filetypes=filetypes,
+                                          initialdir=initial_dir)
+        if path:
+            var.set(path)
+
+    def _run_apply_patches(self, dry_run):
+        """Validate inputs and start Apply Patches in a background thread."""
+        if not _PATCH_IMPORTS_OK:
+            messagebox.showerror(
+                "Missing modules",
+                "apply_synonym_patch.py or apply_url_exclusions.py not found.\n"
+                "Ensure they exist in the project directory."
+            )
+            return
+
+        synonym_path = self.patch_synonym_file.get().strip()
+        excl_path = self.patch_exclusions_file.get().strip()
+
+        if not synonym_path and not excl_path:
+            messagebox.showwarning("No patches selected",
+                                   "Please select at least one patch file.")
+            return
+
+        if synonym_path and not os.path.exists(synonym_path):
+            messagebox.showerror("File not found",
+                                 f"Synonym patch file not found:\n{synonym_path}")
+            return
+        if excl_path and not os.path.exists(excl_path):
+            messagebox.showerror("File not found",
+                                 f"URL exclusions file not found:\n{excl_path}")
+            return
+
+        label = "Previewing…" if dry_run else "Applying…"
+        self.patch_status_label.config(text=f"⚙ {label}")
+
+        semantic_path = self.patch_semantic_file.get().strip() or self.semantic_file.get().strip()
+        country = self.selected_country.get()
+
+        threading.Thread(
+            target=self._apply_patches_worker,
+            args=(synonym_path, excl_path, semantic_path, country, dry_run),
+            daemon=True
+        ).start()
+
+    def _apply_patches_worker(self, synonym_path, excl_path, semantic_path, country, dry_run):
+        """Background thread: runs patch functions, captures output, shows result dialog."""
+        from pathlib import Path
+
+        all_output = []
+
+        def _capture(func, *args):
+            """Run func(*args), capturing stdout; return captured text."""
+            buf = io.StringIO()
+            old_stdout, sys.stdout = sys.stdout, buf
+            try:
+                func(*args)
+            except SystemExit:
+                pass
+            finally:
+                sys.stdout = old_stdout
+            return buf.getvalue()
+
+        # ── Synonym patch ────────────────────────────────────────────────────
+        if synonym_path:
+            patch_path = Path(synonym_path)
+            detected = _detect_patch_country(patch_path)
+            cc = (detected or country).upper()
+            text = _capture(_apply_synonym_patch, patch_path, cc, dry_run)
+            all_output.append(f"=== Synonym Patch ({patch_path.name}) ===\n{text}")
+
+        # ── URL exclusions ───────────────────────────────────────────────────
+        if excl_path:
+            excl_file = Path(excl_path)
+            sem_path = None
+            if semantic_path and os.path.exists(semantic_path):
+                sem_path = Path(semantic_path)
+            else:
+                sem_path = _find_semantic_file(country)
+
+            if sem_path:
+                text = _capture(_apply_url_exclusions, excl_file, sem_path, dry_run)
+                all_output.append(f"=== URL Exclusions ({excl_file.name}) ===\n{text}")
+            else:
+                all_output.append(
+                    f"=== URL Exclusions ===\n"
+                    f"ERROR: No semantic file found for {country}.\n"
+                    f"Specify one in the Semantic File field above."
+                )
+
+        combined = "\n\n".join(all_output) or "(No output)"
+        should_rerun = not dry_run and self.patch_rerun.get()
+
+        def on_done():
+            self.patch_status_label.config(text="")
+            self._show_patches_result_dialog(combined, dry_run)
+            if should_rerun:
+                self.root.after(200, self.run_matching)
+
+        self.root.after(0, on_done)
+
+    def _show_patches_result_dialog(self, output, dry_run):
+        """Show a scrollable results dialog for Apply Patches."""
+        title = "Preview Changes (Dry Run)" if dry_run else "Patches Applied"
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.geometry("750x520")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        tk.Label(
+            dialog, text=title,
+            font=('Segoe UI', 13, 'bold'), pady=10
+        ).pack()
+
+        frame = tk.Frame(dialog)
+        frame.pack(fill='both', expand=True, padx=15, pady=(0, 8))
+
+        text = tk.Text(frame, font=('Consolas', 9), wrap='word',
+                       relief='solid', bd=1)
+        sb = tk.Scrollbar(frame, command=text.yview)
+        text.configure(yscrollcommand=sb.set)
+        sb.pack(side='right', fill='y')
+        text.pack(side='left', fill='both', expand=True)
+
+        text.insert('end', output)
+        text.configure(state='disabled')
+
+        tk.Button(
+            dialog, text="Close", command=dialog.destroy,
+            font=('Segoe UI', 10), bg=self.colors['primary'],
+            fg='white', relief='flat', padx=20, pady=6
+        ).pack(pady=(0, 12))
 
     # ==================== POST-PROCESSING METHODS ====================
 
@@ -4705,13 +7263,22 @@ class TaxonomyMapperGUI:
 
             sys.stdout = LogWriter(self.log)
 
+            # Load per-country noise phrases for the extractor
+            from pathlib import Path as _Path
+            _np_path = _Path(__file__).parent / 'countries' / self.selected_country.get() / 'noise_phrases.json'
+            _noise_phrases = None
+            if _np_path.exists():
+                with open(_np_path, encoding='utf-8') as _npf:
+                    _noise_phrases = json.load(_npf)
+
             # Create extractor and process
             extractor = ContentKeywordExtractor(
                 taxonomy_file=taxonomy_path,
                 synonyms=synonyms,
                 threshold=self.threshold.get(),
                 crawl_urls=crawl_urls,
-                max_workers=10
+                max_workers=10,
+                noise_phrases=_noise_phrases
             )
 
             result_df = extractor.process_file(
@@ -8172,7 +10739,7 @@ class TaxonomyMapperGUI:
                 {'Metric': 'English CMS Generic Language — all countries', 'Value': 'enabling, allowing, providing, ensuring, facilitating, managing, creating, updating, configuring, displaying, showing, accessing, visiting, starting, guidance on, effectively, automatically, properly, correctly'},
                 {'Metric': 'Why filtered', 'Value': 'Gerund-form phrases that describe page actions rather than taxonomy topics. Appear across all CMS help sites and pollute synonym recommendations.'},
                 {'Metric': '', 'Value': ''},
-                {'Metric': 'To add new noise phrases', 'Value': 'Edit NOISE_PHRASE_STARTS in content_keyword_extractor.py (~line 121).'},
+                {'Metric': 'To add new noise phrases', 'Value': 'Use the Noise Phrases Editor tab in the GUI, or edit countries/{CC}/noise_phrases.json directly.'},
             ])
             df_summary = pd.concat([df_summary, _noise_rows], ignore_index=True)
 

@@ -143,3 +143,23 @@ Historical comparison reports generated Feb 2026 (stored externally):
 2. No Crawl (Title+URL+Content) — 100% coverage, 5.5 topics/URL
 3. Crawl Only — 98.3% coverage, 5.3 topics/URL
 4. Summary/Description Only — 93.7% coverage, 4.6 topics/URL
+
+---
+
+## Critical Bug Fixes Reference
+
+| Bug | Fix Location | Impact |
+|-----|--------------|--------|
+| Product filter too strict | `should_match_product()` | 64%→95%+ match rate |
+| One-way synonym matching | `expand_with_synonyms()` | 45%→60% match rate |
+| Substring false positives | Changed to `fuzz.ratio()` | Reduced irrelevant matches |
+| Single-word synonym explosion | `_is_word_match()` word boundary rules | "data" no longer matches 14 topics |
+| Summary single-word noise | `extract_summary_terms()` phrases only | "guide", "management" no longer hijack results |
+| Cross-product exact match | `find_topic_matches()` product filter | "automation" no longer pulls in wrong-product topics |
+| Synonym Editor delete fails | `exportselection=False` on Listbox widgets | Delete/edit buttons work |
+| Excel "found a problem" error | `sanitize_dataframe()` in report generation | Clean Excel output |
+| URL numeric prefixes in keywords | `extract_from_url()` strips leading digits | "15journals" → "journals" |
+| CamelCase URLs not split | `_CAMELCASE_PATTERN` regex in extraction | "ChartOfAccounts" → "chart accounts" |
+| Double-encoded URLs | `unquote(unquote(url))` in extraction | "%252B" decoded correctly |
+| HTML entities in keywords | `_clean_text()` decodes entities + stopwords | "nbsp", "amp" no longer in keywords |
+| BE alias product bypass (v3.25) | `find_topic_matches()` pre-filter | ~641 BE articles unmapped → fixed |

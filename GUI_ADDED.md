@@ -1,4 +1,4 @@
-# ✅ Beautiful UI Added Successfully!
+﻿# ✅ Beautiful UI Added Successfully!
 
 ## What's New
 
@@ -256,6 +256,6 @@ pip install -r requirements.txt
 
 ---
 
-**The NL Taxonomy Mapper V2 now has a beautiful, professional GUI! 🎉**
+**The Taxonomy Mapper V2 now has a beautiful, professional GUI! 🎉**
 
 Ready to use in VSCode or any Python environment!

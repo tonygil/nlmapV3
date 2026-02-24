@@ -1,0 +1,930 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taxonomy Mapper V3 — Resource Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet">
+
+<style>
+/* ── Reset & Base ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --navy:       #012a4a;
+  --navy-mid:   #01375f;
+  --navy-light: #024f8b;
+  --blue:       #0077b6;
+  --blue-mid:   #0096c7;
+  --light:      #48cae4;
+  --pale:       #e8f4f8;
+  --pale2:      #f0f7fa;
+  --text:       #0f1f2e;
+  --text-2:     #3d5068;
+  --text-3:     #7a92a8;
+  --border:     #d4e3ef;
+  --border-md:  #c0d6e8;
+  --surface:    #ffffff;
+
+  --guide-col:  #0077b6;
+  --guide-bg:   #e8f4f8;
+  --tool-col:   #00796b;
+  --tool-bg:    #e0f2f1;
+  --info-col:   #5e35b1;
+  --info-bg:    #ede7f6;
+
+  --radius:     10px;
+  --radius-lg:  16px;
+  --shadow-sm:  0 1px 4px rgba(1,42,74,.08);
+  --shadow-md:  0 4px 20px rgba(1,42,74,.12);
+  --shadow-lg:  0 12px 40px rgba(1,42,74,.18);
+
+  --font-display: 'Syne', system-ui, sans-serif;
+  --font-body:    'DM Sans', system-ui, sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background: #eef4f9;
+  color: var(--text);
+  line-height: 1.6;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ───────────────────────────────────────────────────── */
+.site-header {
+  position: relative;
+  background: var(--navy);
+  color: #fff;
+  padding: 52px 0 48px;
+  overflow: hidden;
+}
+
+.site-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, rgba(72,202,228,.12) 1px, transparent 0);
+  background-size: 32px 32px;
+  pointer-events: none;
+}
+
+.site-header::after {
+  content: '';
+  position: absolute;
+  right: -160px;
+  top: -160px;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,150,199,.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.header-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 40px;
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  opacity: 0;
+  animation: fadeUp .55s cubic-bezier(.22,1,.36,1) .05s forwards;
+}
+
+.header-logo {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  background: linear-gradient(135deg, var(--blue-mid) 0%, var(--light) 100%);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  box-shadow: 0 4px 16px rgba(0,150,199,.35);
+}
+
+.header-logo svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.header-text { flex: 1; }
+
+.header-eyebrow {
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--light);
+  margin-bottom: 8px;
+}
+
+.header-title {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 4vw, 42px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.header-title span { color: var(--light); }
+
+.header-sub {
+  font-size: 17px;
+  font-weight: 300;
+  color: rgba(255,255,255,.6);
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.header-stat {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: rgba(255,255,255,.5);
+}
+
+.header-stat svg {
+  width: 14px; height: 14px;
+  stroke: var(--light); fill: none;
+  stroke-width: 1.8; stroke-linecap: round;
+}
+
+.header-stat strong { color: rgba(255,255,255,.85); font-weight: 500; }
+.header-divider { width: 1px; height: 12px; background: rgba(255,255,255,.18); }
+
+/* ── Country Filter Bar ───────────────────────────────────────── */
+.filter-bar {
+  background: var(--navy-mid);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  padding: 0 40px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(1,42,74,.25);
+}
+
+.filter-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.filter-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.4);
+  padding-right: 20px;
+  border-right: 1px solid rgba(255,255,255,.1);
+  margin-right: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.filter-tabs::-webkit-scrollbar { display: none; }
+
+.filter-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,.5);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color .15s ease, border-color .15s ease;
+  position: relative;
+}
+
+.filter-tab:hover { color: rgba(255,255,255,.85); }
+
+.filter-tab.active {
+  color: #fff;
+  border-bottom-color: var(--light);
+}
+
+.filter-tab .flag {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.filter-tab .tab-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.1);
+  color: rgba(255,255,255,.5);
+  transition: background .15s, color .15s;
+}
+
+.filter-tab.active .tab-count {
+  background: rgba(72,202,228,.22);
+  color: var(--light);
+}
+
+/* ── No-results message ───────────────────────────────────────── */
+.no-results {
+  display: none;
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-3);
+  font-size: 14px;
+}
+
+/* ── Main Content ─────────────────────────────────────────────── */
+.site-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 40px 80px;
+}
+
+/* ── Section ──────────────────────────────────────────────────── */
+.section { margin-bottom: 52px; }
+.section:last-child { margin-bottom: 0; }
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  opacity: 0;
+  animation: fadeUp .45s ease forwards;
+}
+
+.section:nth-child(1) .section-header { animation-delay: .08s; }
+.section:nth-child(2) .section-header { animation-delay: .14s; }
+.section:nth-child(3) .section-header { animation-delay: .20s; }
+
+.section-icon {
+  width: 38px; height: 38px;
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.section-icon svg { width: 19px; height: 19px; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.section-icon--guide { background: var(--guide-bg); }
+.section-icon--guide svg { stroke: var(--guide-col); }
+.section-icon--tool  { background: var(--tool-bg); }
+.section-icon--tool svg  { stroke: var(--tool-col); }
+.section-icon--info  { background: var(--info-bg); }
+.section-icon--info svg  { stroke: var(--info-col); }
+
+.section-heading { flex: 1; }
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 19px; font-weight: 700;
+  color: var(--text); letter-spacing: -.01em;
+}
+
+.section-desc { font-size: 13px; color: var(--text-3); margin-top: 2px; }
+
+.section-count {
+  font-size: 11.5px; font-weight: 600;
+  padding: 3px 10px; border-radius: 20px; letter-spacing: .03em;
+}
+.section-count--guide { background: var(--guide-bg); color: var(--guide-col); }
+.section-count--tool  { background: var(--tool-bg);  color: var(--tool-col); }
+.section-count--info  { background: var(--info-bg);  color: var(--info-col); }
+
+/* Hide section when all cards inside are hidden */
+.section.section-empty { display: none; }
+
+/* ── Card Grid ────────────────────────────────────────────────── */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+/* ── Card ─────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform .22s cubic-bezier(.22,1,.36,1),
+    box-shadow .22s ease,
+    border-color .18s ease,
+    opacity .25s ease;
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  animation: fadeUp .5s cubic-bezier(.22,1,.36,1) forwards;
+}
+
+/* Stagger within each grid */
+.card-grid .card:nth-child(1) { animation-delay: .12s; }
+.card-grid .card:nth-child(2) { animation-delay: .17s; }
+.card-grid .card:nth-child(3) { animation-delay: .22s; }
+.card-grid .card:nth-child(4) { animation-delay: .27s; }
+
+.card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0; width: 3px;
+  border-radius: 3px 0 0 3px;
+  transform: scaleY(0);
+  transition: transform .22s cubic-bezier(.22,1,.36,1);
+  transform-origin: bottom;
+}
+.card--guide::before { background: var(--guide-col); }
+.card--tool::before  { background: var(--tool-col); }
+.card--info::before  { background: var(--info-col); }
+
+.card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); border-color: var(--border-md); }
+.card:hover::before { transform: scaleY(1); }
+
+/* Hidden state (filtered out) */
+.card.card-hidden {
+  display: none;
+}
+
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.card-top-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card-badge {
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 20px;
+}
+.card-badge--guide { background: var(--guide-bg); color: var(--guide-col); }
+.card-badge--tool  { background: var(--tool-bg);  color: var(--tool-col); }
+.card-badge--info  { background: var(--info-bg);  color: var(--info-col); }
+
+/* Country tag on card */
+.card-country {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: rgba(1,42,74,.06);
+  color: var(--text-2);
+  letter-spacing: .04em;
+}
+
+.card-icon-sm {
+  width: 30px; height: 30px;
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.card-icon-sm--guide { background: var(--guide-bg); }
+.card-icon-sm--tool  { background: var(--tool-bg); }
+.card-icon-sm--info  { background: var(--info-bg); }
+.card-icon-sm svg { width: 15px; height: 15px; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.card-icon-sm--guide svg { stroke: var(--guide-col); }
+.card-icon-sm--tool  svg { stroke: var(--tool-col); }
+.card-icon-sm--info  svg { stroke: var(--info-col); }
+
+.card-body { flex: 1; }
+
+.card-title {
+  font-family: var(--font-display);
+  font-size: 15.5px; font-weight: 700;
+  color: var(--text); letter-spacing: -.01em;
+  line-height: 1.3; margin-bottom: 7px;
+}
+
+.card-desc { font-size: 13px; color: var(--text-2); line-height: 1.55; }
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.card-filename {
+  font-size: 10.5px;
+  font-family: 'Courier New', monospace;
+  color: var(--text-3);
+  letter-spacing: .02em;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 10px;
+}
+
+.card-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px; font-weight: 600;
+  text-decoration: none;
+  padding: 5px 13px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition: background .15s ease, color .15s ease;
+}
+.card-open svg { width: 12px; height: 12px; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; stroke: currentColor; transition: transform .18s ease; }
+.card-open--guide { background: var(--guide-bg); color: var(--guide-col); }
+.card-open--tool  { background: var(--tool-bg);  color: var(--tool-col); }
+.card-open--info  { background: var(--info-bg);  color: var(--info-col); }
+.card:hover .card-open--guide { background: var(--guide-col); color: #fff; }
+.card:hover .card-open--tool  { background: var(--tool-col);  color: #fff; }
+.card:hover .card-open--info  { background: var(--info-col);  color: #fff; }
+.card:hover .card-open svg { transform: translateX(2px); }
+
+/* ── Empty section notice ─────────────────────────────────────── */
+.section-empty-msg {
+  display: none;
+  padding: 24px 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13.5px;
+  background: rgba(1,42,74,.03);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+/* ── Footer ───────────────────────────────────────────────────── */
+.site-footer {
+  background: var(--navy);
+  border-top: 1px solid rgba(255,255,255,.06);
+  padding: 20px 40px;
+  text-align: center;
+}
+
+.site-footer p { font-size: 12px; color: rgba(255,255,255,.35); letter-spacing: .02em; }
+.site-footer span { color: rgba(255,255,255,.16); margin: 0 8px; }
+
+/* ── Animations ───────────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Responsive ───────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  .header-inner { padding: 0 20px; flex-direction: column; gap: 14px; }
+  .filter-bar { padding: 0 20px; }
+  .filter-label { display: none; }
+  .site-main { padding: 32px 20px 60px; }
+  .card-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ─────────────────────────────────────────────────── -->
+<header class="site-header">
+  <div class="header-inner">
+    <div class="header-logo">
+      <svg viewBox="0 0 24 24">
+        <circle cx="5"  cy="12" r="2"/><circle cx="19" cy="5" r="2"/>
+        <circle cx="19" cy="19" r="2"/><circle cx="12" cy="12" r="2"/>
+        <line x1="7" y1="11.3" x2="10" y2="12"/>
+        <line x1="14" y1="12" x2="17" y2="6.3"/>
+        <line x1="14" y1="12" x2="17" y2="17.7"/>
+      </svg>
+    </div>
+    <div class="header-text">
+      <div class="header-eyebrow">Taxonomy Matching Suite</div>
+      <h1 class="header-title">Taxonomy Mapper <span>V3</span></h1>
+      <p class="header-sub">Resource Hub</p>
+      <div class="header-meta">
+        <div class="header-stat">
+          <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <strong>4</strong> Guides
+        </div>
+        <div class="header-divider"></div>
+        <div class="header-stat">
+          <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          <strong>3</strong> Tools
+        </div>
+        <div class="header-divider"></div>
+        <div class="header-stat">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          <strong>2</strong> Infographics
+        </div>
+        <div class="header-divider"></div>
+        <div class="header-stat">
+          <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          Opens locally — no upload required
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── COUNTRY FILTER BAR ──────────────────────────────────────── -->
+<div class="filter-bar">
+  <div class="filter-inner">
+    <span class="filter-label">Country</span>
+    <div class="filter-tabs" role="tablist">
+      <button class="filter-tab active" data-filter="all" role="tab">
+        All markets
+        <span class="tab-count" id="count-all">9</span>
+      </button>
+      <button class="filter-tab" data-filter="NL" role="tab">
+        <span class="flag">🇳🇱</span> Netherlands
+        <span class="tab-count" id="count-NL">0</span>
+      </button>
+      <button class="filter-tab" data-filter="BE" role="tab">
+        <span class="flag">🇧🇪</span> Belgium
+        <span class="tab-count" id="count-BE">0</span>
+      </button>
+      <button class="filter-tab" data-filter="GB" role="tab">
+        <span class="flag">🇬🇧</span> United Kingdom
+        <span class="tab-count" id="count-GB">0</span>
+      </button>
+      <button class="filter-tab" data-filter="SE" role="tab">
+        <span class="flag">🇸🇪</span> Sweden
+        <span class="tab-count" id="count-SE">0</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MAIN ───────────────────────────────────────────────────── -->
+<main class="site-main" id="main">
+
+  <!-- ── SECTION 1: GUIDES ───────────────────────────────────── -->
+  <section class="section" id="section-guides">
+    <div class="section-header">
+      <div class="section-icon section-icon--guide">
+        <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      </div>
+      <div class="section-heading">
+        <h2 class="section-title">Guides</h2>
+        <p class="section-desc">Reference documentation and step-by-step process guides</p>
+      </div>
+      <div class="section-count section-count--guide" id="guide-count">4 files</div>
+    </div>
+    <div class="card-grid" id="grid-guides">
+
+      <!-- Countries: all -->
+      <a class="card card--guide" href="WORKFLOW_GUIDE.html" data-countries="all">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="card-badge card-badge--guide">Guide</span>
+          </div>
+          <div class="card-icon-sm card-icon-sm--guide">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">End-to-End Workflow Guide</h3>
+          <p class="card-desc">Step-by-step process guide for running the taxonomy mapper, from file setup through to output and triage.</p>
+        </div>
+        <div class="card-footer">
+          <span class="card-filename">WORKFLOW_GUIDE.html</span>
+          <span class="card-open card-open--guide">Open <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <!-- Countries: all -->
+      <a class="card card--guide" href="TAXONOMY_TOOLS_GUIDE.html" data-countries="all">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="card-badge card-badge--guide">Guide</span>
+          </div>
+          <div class="card-icon-sm card-icon-sm--guide">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">Taxonomy Improvement Tools Guide</h3>
+          <p class="card-desc">User &amp; stakeholder reference covering all tools, matching logic, thresholds, and output columns.</p>
+        </div>
+        <div class="card-footer">
+          <span class="card-filename">TAXONOMY_TOOLS_GUIDE.html</span>
+          <span class="card-open card-open--guide">Open <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <!-- Countries: BE -->
+      <a class="card card--guide" href="NLMap_BE_Workflow_Guide.html" data-countries="BE">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="card-badge card-badge--guide">Guide</span>
+            <span class="card-country">🇧🇪 BE</span>
+          </div>
+          <div class="card-icon-sm card-icon-sm--guide">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">Belgium Workflow Guide</h3>
+          <p class="card-desc">Country-specific workflow for the BE market including Salesforce CSV processing and category mapping.</p>
+        </div>
+        <div class="card-footer">
+          <span class="card-filename">NLMap_BE_Workflow_Guide.html</span>
+          <span class="card-open card-open--guide">Open <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <!-- Countries: all -->
+      <a class="card card--guide" href="CAMPAIGN_ASSISTANT_GUIDE.html" data-countries="all">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="card-badge card-badge--guide">Guide</span>
+          </div>
+          <div class="card-icon-sm card-icon-sm--guide">
+            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">Campaign Assistant Guide</h3>
+          <p class="card-desc">Guide to the AI-powered campaign assistant feature and how to interpret and act on its recommendations.</p>
+        </div>
+        <div class="card-footer">
+          <span class="card-filename">CAMPAIGN_ASSISTANT_GUIDE.html</span>
+          <span class="card-open card-open--guide">Open <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+    </div>
+    <div class="section-empty-msg" id="guides-empty">No guides available for the selected country.</div>
+  </section>
+
+  <!-- ── SECTION 2: INTERACTIVE TOOLS ───────────────────────── -->
+  <section class="section" id="section-tools">
+    <div class="section-header">
+      <div class="section-icon section-icon--tool">
+        <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      </div>
+      <div class="section-heading">
+        <h2 class="section-title">Interactive Tools</h2>
+        <p class="section-desc">Browser-based tools — load your data file and review, triage or patch taxonomy data</p>
+      </div>
+      <div class="section-count section-count--tool" id="tool-count">3 files</div>
+    </div>
+    <div class="card-grid" id="grid-tools">
+
+      <!-- Countries: all -->
+      <a class="card card--tool" href="unmapped_review.html" data-countries="all">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="card-badge card-badge--tool">Tool</span>
+            <span class="card-country" style="background:rgba(0,121,107,.08);color:var(--tool-col);">Loads .xlsx</span>
+          </div>
+          <div class="card-icon-sm card-icon-sm--tool">
+            <svg viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">Unmapped URL Triage</h3>
+          <p class="card-desc">Load your results sheet and action each unmapped row: mark as Noise, Product issue, needs Synonym, Remove, or Skip. Exports patch files.</p>
+        </div>
+        <div class="card-footer">
+          <span class="card-filename">unmapped_review.html</span>
+          <span class="card-open card-open--tool">Open <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <!-- Countries: all -->
+      <a class="card card--tool" href="synonym_review.html" data-countries="all">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="card-badge card-badge--tool">Tool</span>
+            <span class="card-country" style="background:rgba(0,121,107,.08);color:var(--tool-col);">Loads .xlsx</span>
+          </div>
+          <div class="card-icon-sm card-icon-sm--tool">
+            <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">Synonym Review Tool</h3>
+          <p class="card-desc">Load your Keyword Recommendations sheet, review near-miss keywords, and build synonym patch files for import.</p>
+        </div>
+        <div class="card-footer">
+          <span class="card-filename">synonym_review.html</span>
+          <span class="card-open card-open--tool">Open <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <!-- Countries: all -->
+      <a class="card card--tool" href="gap_analysis_dashboard.html" data-countries="all">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="card-badge card-badge--tool">Tool</span>
+            <span class="card-country" style="background:rgba(0,121,107,.08);color:var(--tool-col);">Loads .xlsx</span>
+          </div>
+          <div class="card-icon-sm card-icon-sm--tool">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">Gap Analysis Dashboard</h3>
+          <p class="card-desc">Load your gap analysis output — visual dashboard showing phantom topics, never-matched topics, and synonym coverage gaps.</p>
+        </div>
+        <div class="card-footer">
+          <span class="card-filename">gap_analysis_dashboard.html</span>
+          <span class="card-open card-open--tool">Open <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+    </div>
+    <div class="section-empty-msg" id="tools-empty">No tools tagged for this country (all tools work with any country's data file).</div>
+  </section>
+
+  <!-- ── SECTION 3: INFOGRAPHICS ─────────────────────────────── -->
+  <section class="section" id="section-infographics">
+    <div class="section-header">
+      <div class="section-icon section-icon--info">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+      </div>
+      <div class="section-heading">
+        <h2 class="section-title">Infographics</h2>
+        <p class="section-desc">Visual summaries and implementation overviews for stakeholder communication</p>
+      </div>
+      <div class="section-count section-count--info" id="info-count">2 files</div>
+    </div>
+    <div class="card-grid" id="grid-infographics">
+
+      <!-- Countries: NL -->
+      <a class="card card--info" href="TOPIC_RECOMMENDATIONS_INFOGRAPHIC.html" data-countries="NL">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="card-badge card-badge--info">Infographic</span>
+            <span class="card-country">🇳🇱 NL</span>
+          </div>
+          <div class="card-icon-sm card-icon-sm--info">
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">Topic Recommendations</h3>
+          <p class="card-desc">Visual summary of recommended new topics based on unmapped keyword clustering analysis.</p>
+        </div>
+        <div class="card-footer">
+          <span class="card-filename">TOPIC_RECOMMENDATIONS_INFOGRAPHIC.html</span>
+          <span class="card-open card-open--info">Open <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+      <!-- Countries: GB -->
+      <a class="card card--info" href="UK_SYNONYM_IMPLEMENTATION_INFOGRAPHIC.html" data-countries="GB">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="card-badge card-badge--info">Infographic</span>
+            <span class="card-country">🇬🇧 GB</span>
+          </div>
+          <div class="card-icon-sm card-icon-sm--info">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">UK Synonym Implementation</h3>
+          <p class="card-desc">Infographic summarising the UK synonym strategy, coverage improvements, and implementation results.</p>
+        </div>
+        <div class="card-footer">
+          <span class="card-filename">UK_SYNONYM_IMPLEMENTATION_INFOGRAPHIC.html</span>
+          <span class="card-open card-open--info">Open <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        </div>
+      </a>
+
+    </div>
+    <div class="section-empty-msg" id="infographics-empty">No infographics available for the selected country.</div>
+  </section>
+
+</main>
+
+<!-- ── FOOTER ─────────────────────────────────────────────────── -->
+<footer class="site-footer">
+  <p>
+    Taxonomy Mapper V3
+    <span>·</span>
+    All files open locally in your browser
+    <span>·</span>
+    No data is uploaded or shared
+  </p>
+</footer>
+
+<script>
+// ── Country filter logic ────────────────────────────────────────
+const tabs    = document.querySelectorAll('.filter-tab');
+const cards   = document.querySelectorAll('.card[data-countries]');
+const sections = [
+  { id: 'section-guides',      grid: 'grid-guides',      empty: 'guides-empty',      count: 'guide-count' },
+  { id: 'section-tools',       grid: 'grid-tools',       empty: 'tools-empty',       count: 'tool-count' },
+  { id: 'section-infographics',grid: 'grid-infographics',empty: 'infographics-empty',count: 'info-count' },
+];
+
+// Build per-country counts on load
+function buildCounts() {
+  const countryKeys = ['NL', 'BE', 'GB', 'SE'];
+  countryKeys.forEach(cc => {
+    let n = 0;
+    cards.forEach(card => {
+      const countries = card.dataset.countries;
+      if (countries === 'all' || countries.split(',').map(s => s.trim()).includes(cc)) n++;
+    });
+    const el = document.getElementById('count-' + cc);
+    if (el) el.textContent = n;
+  });
+}
+
+function applyFilter(selected) {
+  // Show/hide cards
+  cards.forEach(card => {
+    const countries = card.dataset.countries;
+    const match = selected === 'all'
+      || countries === 'all'
+      || countries.split(',').map(s => s.trim()).includes(selected);
+    card.classList.toggle('card-hidden', !match);
+  });
+
+  // Show/hide sections and update counts
+  sections.forEach(sec => {
+    const grid  = document.getElementById(sec.grid);
+    const empty = document.getElementById(sec.empty);
+    const count = document.getElementById(sec.count);
+    const section = document.getElementById(sec.id);
+    if (!grid) return;
+    const visible = grid.querySelectorAll('.card:not(.card-hidden)');
+    const n = visible.length;
+    if (count) count.textContent = n + (n === 1 ? ' file' : ' files');
+    if (empty) empty.style.display = n === 0 ? 'block' : 'none';
+    if (section) section.style.display = n === 0 && selected !== 'all' ? '' : '';
+  });
+
+  // Update total count tab
+  const totalVisible = document.querySelectorAll('.card:not(.card-hidden)').length;
+  const allCountEl = document.getElementById('count-all');
+  if (allCountEl && selected === 'all') allCountEl.textContent = totalVisible;
+}
+
+tabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    tabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    applyFilter(tab.dataset.filter);
+  });
+});
+
+buildCounts();
+applyFilter('all');
+</script>
+
+</body>
+</html>

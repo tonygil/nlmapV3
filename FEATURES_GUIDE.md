@@ -115,6 +115,61 @@ Dedicated tab for reviewing and applying synonyms directly in the GUI (full-scre
 
 ---
 
+## Unmapped Review Tool (unmapped_review.html)
+
+Standalone browser triage tool for reviewing unmapped URLs row-by-row and producing fix files. Open directly in Chrome/Edge — no server required.
+
+**Position in the improvement loop:** Use this **after bulk fixes** (category_mapping edits, Synonym Assistant, synonym_review.html near-misses). It handles the remaining hard cases that bulk methods can't resolve automatically.
+
+```
+Run matcher → Gap Analysis (check rate) → Bulk fixes (category_mapping, Synonym Assistant)
+  → synonym_review.html (near-misses) → unmapped_review.html (remaining row-by-row) → Apply patches → Re-run
+```
+
+**How to open:** Double-click `unmapped_review.html` → click Load → select the `taxonomy_match_{CC}.xlsx` Results sheet.
+
+### 5 Actions per Row
+
+| Action | When to use | Export produced |
+|--------|------------|-----------------|
+| **Remove** | URL is genuinely off-topic and should leave the denominator | `unmapped_exclusions_*.json` |
+| **Product** | Matcher found matches but wrong product was assigned | `category_fixes_*.json` |
+| **Synonym** | Near-miss — keyword almost matched, needs a synonym added | `synonym_patch_*.json` |
+| **Noise** | Row has boilerplate keywords polluting extraction (Dutch UI chrome, CMS gerunds) | `noise_phrases_*.txt` |
+| **Skip** | Uncertain — come back later, nothing exported | — |
+
+The `Suggested_Product` column (v3.26) pre-populates the Product panel with the best-scoring unfiltered match's product — saves looking it up manually.
+
+### 4 Export Formats
+
+| Export button | Filename | Apply with |
+|---------------|----------|-----------|
+| 🗑 Exclusions JSON | `unmapped_exclusions_BE_*.json` | `python apply_url_exclusions.py -i file.json` or GUI Apply Patches |
+| 🏷 Category Fixes JSON | `category_fixes_BE_*.json` | Manual: copy entries into `countries/{CC}/category_mapping.json` |
+| ✏ Synonym Patch JSON | `synonym_patch_BE_*.json` | `python apply_synonym_patch.py -i file.json` or GUI Apply Patches |
+| 🔕 Noise Phrases TXT | `noise_phrases_BE_*.txt` | Manual: add entries to `NOISE_PHRASE_STARTS` in `content_keyword_extractor.py` |
+
+### Distinction from synonym_review.html
+
+| Tool | Input | Best for |
+|------|-------|---------|
+| `synonym_review.html` | Keyword Recommendations sheet (near-misses 50–84%) | **Bulk** synonym discovery — scores already computed, multi-select |
+| `unmapped_review.html` | Results sheet (unmapped rows) | **Row-by-row** diagnosis — handles product fixes, noise, removals, not just synonyms |
+
+In practice: use `synonym_review.html` first to handle all the near-misses in one pass, then use `unmapped_review.html` for whatever's still unmapped.
+
+### Filter Tabs
+
+The tool groups unmapped rows into tabs by reason:
+- **📰 Artikel Noise** — rows where extracted keywords are dominated by Dutch UI chrome
+- **🏷 Product** — "Product filter excluded matches" rows
+- **🔍 No Match** — "No matches above threshold" rows
+- **⚠ No KW** — "No keywords extracted" rows
+
+Work the Product tab first (often highest yield per fix), then No Match, then Artikel Noise.
+
+---
+
 ## Post-Processing (Output Cleanup)
 
 `post_processor.py` cleans raw matching output by applying quality filters. GUI: "Clean Output" button or CLI.

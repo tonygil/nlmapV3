@@ -1,78 +1,68 @@
-# NL Taxonomy Mapper V3 - Multi-Country Configuration
-# Version: 3.0
-
-# Default country (used if not specified via GUI or CLI)
-default_country: "NL"
-
-# Country Registry
-# Add new countries here without code changes
+default_country: NL
 countries:
   NL:
-    name: "Netherlands"
-    language: "Dutch"
-    code: "NL"
+    name: Netherlands
+    language: Dutch
+    code: NL
     enabled: true
-    # Relative paths from countries/ directory
     files:
-      semantic_carriers: "semantic_carriers_list.xlsx"
-      taxonomy: "taxonomy.xlsx"
-      synonyms: "synonyms.json"
-    # Default settings for this country
+      semantic_carriers: semantic_carriers_list.xlsx
+      taxonomy: taxonomy.xlsx
+      synonyms: synonyms.json
     settings:
       similarity_threshold: 80
-      description: "Dutch accounting software taxonomy for Sitecore"
-
+      description: Dutch accounting software taxonomy for Sitecore
   SE:
-    name: "Sweden"
-    language: "Swedish"
-    code: "SE"
+    name: Sweden
+    language: Swedish
+    code: SE
     enabled: true
     files:
-      semantic_carriers: "semantic_carriers_list.xlsx"
-      taxonomy: "taxonomy.xlsx"
-      synonyms: "synonyms.json"
+      semantic_carriers: semantic_carriers_list.xlsx
+      taxonomy: taxonomy.xlsx
+      synonyms: synonyms.json
     settings:
       similarity_threshold: 80
-      description: "Swedish accounting software taxonomy"
-
+      description: Swedish accounting software taxonomy
   BE:
-    name: "Belgium"
-    language: "Dutch/French"
-    code: "BE"
+    name: Belgium
+    language: Dutch/French
+    code: BE
     enabled: true
     files:
-      semantic_carriers: "semantic_carriers_list.xlsx"
-      taxonomy: "taxonomy.xlsx"
-      synonyms: "synonyms.json"
+      semantic_carriers: semantic_carriers_list.xlsx
+      taxonomy: taxonomy.xlsx
+      synonyms: synonyms.json
     settings:
       similarity_threshold: 80
-      description: "Belgian accounting software taxonomy"
-
+      description: Belgian accounting software taxonomy
   GB:
-    name: "United Kingdom"
-    language: "English"
-    code: "GB"
+    name: United Kingdom
+    language: English
+    code: GB
     enabled: true
     files:
-      semantic_carriers: "semantic_carriers_list.xlsx"
-      taxonomy: "taxonomy.xlsx"
-      synonyms: "synonyms.json"
+      semantic_carriers: semantic_carriers_list.xlsx
+      taxonomy: taxonomy.xlsx
+      synonyms: synonyms.json
     settings:
       similarity_threshold: 80
-      description: "UK accounting software taxonomy"
-
-# Global settings (apply to all countries unless overridden)
+      description: UK accounting software taxonomy
 global_settings:
   enable_deduplication: true
   progress_update_interval: 50
   include_similarity_scores: false
   sort_output_by_url: true
-  consolidate_topics: false  # Default to one-row-per-topic (backward compatible)
-  topic_column_prefix: "Topic_"  # Column naming pattern for consolidated view
-
-# Backward compatibility
+  
+  consolidate_topics: true
+  topic_column_prefix: Topic_
+  anthropic_api_key: ""  # Set via ANTHROPIC_API_KEY environment variable
 backward_compatibility:
-  # If true, checks root directory for legacy files when country is NL
   check_root_for_legacy: true
-  legacy_semantic_file: "semantic_carriers_list.xlsx"
-  legacy_taxonomy_file: "NL Taxonomy V2.xlsx"
+  legacy_semantic_file: semantic_carriers_list.xlsx
+  legacy_taxonomy_file: NL Taxonomy V2.xlsx
+last_used_files:
+  GB:
+    taxonomy: C:/Users/Tony.Gilpin/Downloads/6thFeb/Latest Taxonomy 03-02-26 _6thFeb.xlsx
+  BE:
+    taxonomy: C:/Users/Tony.Gilpin/Downloads/16thFeb/Taxonomy BE_17thFeb.xlsx

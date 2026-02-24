@@ -23,6 +23,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import Counter, defaultdict
 import re
+import json
 
 # ============================================================================
 # CONFIGURATION - Edit these paths before running
@@ -33,11 +34,13 @@ SEMANTIC_FILE = r"C:\Users\Tony.Gilpin\Downloads\2ndFeb\userdocs.wolterskluwer.c
 COMPARISON_TAXONOMY_FILE = r"C:\url spreasheets\vs_projects\nlmapV3\countries\GB\taxonomy.xlsx"  # Optional: for comparison
 OUTPUT_FILE = "TAXONOMY_GAP_ANALYSIS_REPORT.xlsx"
 
-# Thresholds
-SYNONYM_SCORE_THRESHOLD = 60  # Minimum fuzzy match score for synonym suggestions
-HIGH_PRIORITY_SCORE = 75      # Score threshold for HIGH priority
-MEDIUM_PRIORITY_SCORE = 65    # Score threshold for MEDIUM priority
-MIN_KEYWORD_FREQUENCY = 3     # Minimum keyword occurrences to suggest as synonym
+# Thresholds — defaults shown; at runtime derived from THRESHOLD as threshold-20/threshold-5/threshold-15
+SYNONYM_SCORE_THRESHOLD = 60  # Default (= THRESHOLD - 20); minimum fuzzy match for synonym suggestions
+HIGH_PRIORITY_SCORE = 75      # Default (= THRESHOLD - 5);  score threshold for HIGH priority
+MEDIUM_PRIORITY_SCORE = 65    # Default (= THRESHOLD - 15); score threshold for MEDIUM priority
+MIN_KEYWORD_FREQUENCY = 3     # Minimum keyword occurrences to suggest as synonym (not threshold-derived)
+THRESHOLD = 80                # Main matcher threshold — drives the three scores above
+COUNTRY_CODE = ''             # Optional: tag runs for progress tracking (e.g. 'GB', 'BE')
 
 
 def sanitize_dataframe(df):
@@ -99,6 +102,30 @@ def sanitize_cell_value(value):
         s = "'" + s
 
     return s.strip()
+
+
+def _append_progress_entry(json_path, entry):
+    """
+    Append one run's metrics to the gap_analysis_progress.json log.
+    Creates the file if missing. Silently resets on corruption.
+    Returns the full history list (including this entry).
+    """
+    history = []
+    try:
+        if Path(json_path).exists():
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                history = data
+    except (json.JSONDecodeError, OSError, ValueError):
+        print(f"  Warning: Progress log corrupted — starting fresh: {json_path}")
+    history.append(entry)
+    try:
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(history, f, indent=2, ensure_ascii=False)
+    except OSError as e:
+        print(f"  Warning: Could not write progress log: {e}")
+    return history
 
 
 def load_data():
@@ -241,6 +268,22 @@ def generate_executive_summary(df_match, df_taxonomy, df_semantic, never_matched
         {'Metric': 'Finding 3', 'Value': f'Match rate is {match_rate}% - {"Good" if match_rate >= 80 else "Needs improvement"}'},
     ])
 
+    # Append noise-filtering note so readers know what was excluded upstream
+    noise_rows = pd.DataFrame([
+        {'Metric': '', 'Value': ''},
+        {'Metric': '=== KEYWORD NOISE FILTERING ===', 'Value': ''},
+        {'Metric': 'Note', 'Value': 'The phrases below are filtered by ContentKeywordExtractor (NOISE_PHRASE_STARTS) before keywords reach this report. Their absence from recommendations is intentional, not a gap.'},
+        {'Metric': '', 'Value': ''},
+        {'Metric': 'Dutch UI Chrome — BE/NL Salesforce community sites', 'Value': 'artikel vind, artikel lees, artikel legt, artikel leggen, alle artikelen, mijn artikelen, nieuw artikel, zoek artikel'},
+        {'Metric': 'Why filtered', 'Value': 'Every page on the community site is an article; these Dutch nav-action phrases leak from UI chrome into every page\'s extracted text. Without filtering they generated ~614 false near-miss recommendations per run (Artikelen topic).'},
+        {'Metric': '', 'Value': ''},
+        {'Metric': 'English CMS Generic Language — all countries', 'Value': 'enabling, allowing, providing, ensuring, facilitating, managing, creating, updating, configuring, displaying, showing, accessing, visiting, starting, guidance on, effectively, automatically, properly, correctly'},
+        {'Metric': 'Why filtered', 'Value': 'Gerund-form phrases that describe page actions rather than taxonomy topics. Appear across all CMS help sites and pollute synonym recommendations.'},
+        {'Metric': '', 'Value': ''},
+        {'Metric': 'To add new noise phrases', 'Value': 'Use the Noise Phrases Editor tab in the GUI, or edit countries/{CC}/noise_phrases.json directly. Uses prefix matching — shortest unambiguous prefix covers the whole noise family.'},
+    ])
+    summary = pd.concat([summary, noise_rows], ignore_index=True)
+
     print(f"  Match rate: {match_rate}%")
     print(f"  Never-matched topics: {never_matched_count}")
     print(f"  Phantom topics: {phantom_count}")
@@ -379,9 +422,13 @@ def generate_taxonomy_comparison(df_taxonomy, df_comparison):
     return pd.DataFrame(comparison_data)
 
 
-def generate_synonym_recommendations(df_match, df_semantic, df_taxonomy, all_taxonomy_topics, topic_to_product):
+def generate_synonym_recommendations(df_match, df_semantic, df_taxonomy, all_taxonomy_topics, topic_to_product, threshold=80):
     """Generate synonym recommendations for never-matched topics."""
     print("\n[6/8] Generating Synonym Recommendations...")
+    # Derive thresholds relative to main matcher threshold (mirrors taxonomy_matcher.py logic)
+    _syn_score_threshold = max(50, threshold - 20)
+    _high_threshold = threshold - 5
+    _med_threshold = threshold - 15
 
     from rapidfuzz import fuzz
 
@@ -434,7 +481,7 @@ def generate_synonym_recommendations(df_match, df_semantic, df_taxonomy, all_tax
             partial_score = fuzz.partial_ratio(topic, kw)
             best_score = max(score, partial_score)
 
-            if best_score >= SYNONYM_SCORE_THRESHOLD:
+            if best_score >= _syn_score_threshold:
                 # Include URLs for this keyword
                 urls = keyword_urls.get(kw, [])
                 suggested_keywords.append((kw, freq, best_score, urls))
@@ -461,10 +508,10 @@ def generate_synonym_recommendations(df_match, df_semantic, df_taxonomy, all_tax
             # Keep up to 5 full URLs
             unique_urls = unique_urls[:5]
 
-            # Determine priority
-            if best_score >= HIGH_PRIORITY_SCORE:
+            # Determine priority (relative to main matcher threshold)
+            if best_score >= _high_threshold:
                 priority = 'HIGH'
-            elif best_score >= MEDIUM_PRIORITY_SCORE:
+            elif best_score >= _med_threshold:
                 priority = 'MEDIUM'
             else:
                 priority = 'LOW'
@@ -742,7 +789,7 @@ def main():
     df_phantom = generate_phantom_topics(df_match, all_taxonomy_topics, topic_match_counts)
     df_never_matched = generate_never_matched_topics(df_match, df_taxonomy, all_taxonomy_topics, topic_to_product, topic_to_segment)
     df_comparison_sheet = generate_taxonomy_comparison(df_taxonomy, df_comparison)
-    df_synonym_recs = generate_synonym_recommendations(df_match, df_semantic, df_taxonomy, all_taxonomy_topics, topic_to_product)
+    df_synonym_recs = generate_synonym_recommendations(df_match, df_semantic, df_taxonomy, all_taxonomy_topics, topic_to_product, threshold=THRESHOLD)
     df_products = generate_product_breakdown(df_match, df_taxonomy)
     df_actions = generate_action_items(df_phantom, df_never_matched, df_synonym_recs, df_products)
 
@@ -752,6 +799,35 @@ def main():
         never_matched_count=len(df_never_matched),
         phantom_count=len(df_phantom)
     )
+
+    # === PROGRESS TRACKING ===
+    print("\n[8/8] Updating progress log...")
+    total_urls = df_match['URL'].nunique()
+    unmapped_urls = df_match[df_match['Domain'] == 'UNMAPPED']['URL'].nunique() if 'Domain' in df_match.columns else 0
+    match_rate = round((total_urls - unmapped_urls) / total_urls * 100, 1) if total_urls > 0 else 0
+    all_taxonomy_topics_set, _, _ = get_all_taxonomy_topics(df_taxonomy)
+    matched_topics_set, _ = get_matched_topics(df_match)
+
+    progress_entry = {
+        'run_datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'country_code': COUNTRY_CODE,
+        'match_rate_pct': match_rate,
+        'total_urls': int(total_urls),
+        'mapped_urls': int(total_urls - unmapped_urls),
+        'unmapped_urls': int(unmapped_urls),
+        'never_matched_topics_count': len(df_never_matched),
+        'phantom_topics_count': len(df_phantom),
+        'total_taxonomy_topics': len(all_taxonomy_topics_set),
+        'threshold_used': THRESHOLD,
+    }
+    json_path = Path(__file__).parent / 'gap_analysis_progress.json'
+    progress_history = _append_progress_entry(json_path, progress_entry)
+    print(f"  Progress log updated: {len(progress_history)} total runs recorded")
+
+    _progress_cols = ['run_datetime', 'country_code', 'match_rate_pct', 'total_urls',
+                      'mapped_urls', 'unmapped_urls', 'never_matched_topics_count',
+                      'phantom_topics_count', 'total_taxonomy_topics', 'threshold_used']
+    df_progress = pd.DataFrame(progress_history).reindex(columns=_progress_cols)
 
     # Write to Excel
     output_path = Path(__file__).parent / OUTPUT_FILE
@@ -765,6 +841,7 @@ def main():
         sanitize_dataframe(df_synonym_recs).to_excel(writer, sheet_name='Synonym Recommendations', index=False)
         sanitize_dataframe(df_products).to_excel(writer, sheet_name='Product Breakdown', index=False)
         sanitize_dataframe(df_actions).to_excel(writer, sheet_name='Action Items', index=False)
+        sanitize_dataframe(df_progress).to_excel(writer, sheet_name='Progress', index=False)
 
         apply_excel_formatting(writer)
 
@@ -782,6 +859,7 @@ def main():
     print(f"  5. Synonym Recommendations - {len(df_synonym_recs)} suggestions")
     print(f"  6. Product Breakdown - {len(df_products)} products analyzed")
     print(f"  7. Action Items - {len(df_actions)} prioritized actions")
+    print(f"  8. Progress - {len(progress_history)} runs tracked ({match_rate}% match rate this run)")
 
 
 if __name__ == '__main__':

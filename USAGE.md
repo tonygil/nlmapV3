@@ -1,4 +1,4 @@
-# Usage Guide - NL Taxonomy Mapper V2
+﻿# Usage Guide - Taxonomy Mapper V2
 
 ## Quick Start
 

@@ -1,5 +1,5 @@
-"""
-Generate Executive Summary PDF for NL Taxonomy Mapper V3
+﻿"""
+Generate Executive Summary PDF for Taxonomy Mapper V3
 """
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -47,7 +47,7 @@ def create_executive_summary():
     )
 
     # Title
-    title = Paragraph("NL Taxonomy Mapper V3", title_style)
+    title = Paragraph("Taxonomy Mapper V3", title_style)
     subtitle = Paragraph("Executive Summary", styles['Heading2'])
     elements.append(title)
     elements.append(subtitle)
@@ -61,7 +61,7 @@ def create_executive_summary():
     # Overview Section
     elements.append(Paragraph("Overview", heading_style))
     overview_text = """
-    NL Taxonomy Mapper V3 is an automated content classification system that maps URLs
+    Taxonomy Mapper V3 is an automated content classification system that maps URLs
     from semantic carriers to a hierarchical taxonomy structure. The application uses
     advanced fuzzy string matching algorithms to intelligently categorize web content
     based on extracted keywords, with specialized support for Dutch language variations.
@@ -74,7 +74,7 @@ def create_executive_summary():
     problem_text = """
     Organizations often maintain large collections of web content that need to be
     systematically categorized into predefined taxonomy structures. Manual classification
-    is time-consuming, inconsistent, and difficult to scale. The NL Taxonomy Mapper
+    is time-consuming, inconsistent, and difficult to scale. The Taxonomy Mapper
     addresses this challenge by automating the classification process while maintaining
     high accuracy rates.
     """

@@ -1,0 +1,745 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synonym Review Tool</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* ===== GLOBAL ===== */
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
+  background:linear-gradient(135deg,#0f2027 0%,#203a43 50%,#2c5364 100%);
+  min-height:100vh;color:#fff;font-size:13px;
+}
+
+/* ===== LANDING ===== */
+#landing{
+  display:flex;align-items:center;justify-content:center;min-height:100vh;padding:30px;
+}
+.drop-zone{
+  background:rgba(0,0,0,.38);border:2px dashed rgba(72,202,228,.45);
+  border-radius:20px;padding:60px 80px;text-align:center;max-width:540px;width:100%;
+  transition:all .3s;cursor:pointer;
+}
+.drop-zone:hover,.drop-zone.drag{
+  border-color:#48cae4;background:rgba(72,202,228,.07);
+  box-shadow:0 0 50px rgba(72,202,228,.18);
+}
+.drop-icon{font-size:3.5rem;margin-bottom:18px;display:block}
+.drop-zone h1{font-size:1.6rem;font-weight:300;margin-bottom:8px;letter-spacing:1px}
+.drop-sub{color:#8ecae6;font-size:.92rem;margin-bottom:26px;line-height:1.6}
+.file-btn{
+  background:linear-gradient(135deg,#0077b6,#023e8a);color:#fff;border:none;
+  border-radius:10px;padding:13px 36px;font-size:.95rem;font-family:inherit;
+  cursor:pointer;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.3);transition:opacity .2s;
+}
+.file-btn:hover{opacity:.85}
+.drop-hint{margin-top:16px;font-size:.78rem;color:rgba(255,255,255,.28)}
+.country-chips{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:12px}
+.chip{background:rgba(72,202,228,.12);border:1px solid rgba(72,202,228,.3);border-radius:20px;padding:3px 14px;font-size:.76rem;color:#90e0ef}
+#land-error{margin-top:12px;color:#ef9a9a;font-size:.83rem;display:none}
+
+/* ===== APP SHELL ===== */
+#app{display:none;flex-direction:column;height:100vh;overflow:hidden}
+
+/* TOP BAR */
+.top-bar{
+  background:rgba(0,0,0,.5);backdrop-filter:blur(10px);
+  border-bottom:1px solid rgba(255,255,255,.07);
+  padding:8px 20px;display:flex;align-items:center;justify-content:space-between;
+  flex-shrink:0;
+}
+.top-left{display:flex;align-items:center;gap:12px;min-width:0}
+.country-badge{
+  background:rgba(72,202,228,.2);border:1px solid #48cae4;border-radius:20px;
+  padding:3px 14px;font-size:.82rem;color:#48cae4;font-weight:700;white-space:nowrap;
+}
+.top-filename{font-size:.75rem;color:rgba(255,255,255,.35);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:340px}
+.load-btn{
+  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);
+  color:rgba(255,255,255,.6);border-radius:7px;padding:5px 16px;
+  font-size:.8rem;font-family:inherit;cursor:pointer;transition:all .2s;white-space:nowrap;
+}
+.load-btn:hover{background:rgba(72,202,228,.12);border-color:#48cae4;color:#48cae4}
+
+/* STATS BAR */
+.stats-bar{
+  background:rgba(0,0,0,.25);padding:8px 20px;
+  display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+.stat-pill{
+  border-radius:20px;padding:3px 14px;font-size:.78rem;font-weight:700;cursor:pointer;
+  transition:all .2s;border:2px solid transparent;
+}
+.stat-pill.all  {background:rgba(255,255,255,.1);color:#fff}
+.stat-pill.high {background:rgba(198,40,40,.25);color:#ef9a9a;border-color:rgba(198,40,40,.4)}
+.stat-pill.med  {background:rgba(239,108,0,.2);color:#ffcc80;border-color:rgba(239,108,0,.35)}
+.stat-pill.low  {background:rgba(249,168,37,.15);color:#fff176;border-color:rgba(249,168,37,.3)}
+.stat-pill.active{transform:scale(1.06)}
+.stat-pill.all.active {background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.5)}
+.stat-pill.high.active{background:rgba(198,40,40,.5);border-color:#ef5350}
+.stat-pill.med.active {background:rgba(239,108,0,.45);border-color:#ff9800}
+.stat-pill.low.active {background:rgba(249,168,37,.35);border-color:#fdd835}
+.stat-sep{color:rgba(255,255,255,.2);font-size:1rem}
+.stat-showing{font-size:.78rem;color:rgba(255,255,255,.4);margin-left:4px}
+
+/* FILTER BAR */
+.filter-bar{
+  background:rgba(0,0,0,.18);padding:8px 20px;
+  display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;
+  border-bottom:1px solid rgba(255,255,255,.05);
+}
+.filter-bar select,.filter-bar input[type=text]{
+  background:rgba(0,0,0,.4);color:#fff;border:1px solid rgba(255,255,255,.15);
+  border-radius:7px;padding:5px 10px;font-size:.8rem;font-family:inherit;outline:none;
+}
+.filter-bar input[type=text]{width:200px}
+.filter-bar input[type=text]::placeholder{color:rgba(255,255,255,.3)}
+.filter-bar select:focus,.filter-bar input:focus{border-color:#48cae4}
+.filter-label{font-size:.78rem;color:rgba(255,255,255,.45);white-space:nowrap}
+.toggle-label{
+  display:flex;align-items:center;gap:6px;cursor:pointer;
+  font-size:.78rem;color:rgba(255,255,255,.55);white-space:nowrap;
+}
+.toggle-label input{cursor:pointer;accent-color:#48cae4}
+.clear-btn{
+  background:none;border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.4);
+  border-radius:6px;padding:4px 12px;font-size:.76rem;cursor:pointer;font-family:inherit;
+  transition:all .2s;
+}
+.clear-btn:hover{border-color:#48cae4;color:#48cae4}
+
+/* TABLE */
+.table-wrap{flex:1;overflow-y:auto;overflow-x:auto}
+.table-wrap::-webkit-scrollbar{width:5px;height:5px}
+.table-wrap::-webkit-scrollbar-thumb{background:rgba(72,202,228,.25);border-radius:3px}
+table{width:100%;border-collapse:collapse;min-width:900px}
+thead th{
+  background:rgba(0,0,0,.5);color:#48cae4;padding:9px 12px;
+  text-align:left;font-weight:600;font-size:.77rem;text-transform:uppercase;
+  letter-spacing:.6px;white-space:nowrap;position:sticky;top:0;z-index:10;
+  border-bottom:2px solid rgba(72,202,228,.25);
+}
+thead th.th-check{width:44px;text-align:center}
+thead th.sortable{cursor:pointer}
+thead th.sortable:hover{color:#90e0ef}
+tbody tr{border-bottom:1px solid rgba(255,255,255,.04);transition:background .15s}
+tbody tr:hover{background:rgba(255,255,255,.03)}
+tbody tr.selected-row{background:rgba(72,202,228,.08)}
+tbody tr.url-row{background:rgba(0,0,0,.2)}
+tbody tr.url-row:hover{background:rgba(0,0,0,.25)}
+td{padding:8px 12px;vertical-align:top;font-size:.82rem;color:rgba(255,255,255,.82)}
+td.td-check{text-align:center;padding-top:10px}
+
+/* Checkbox */
+input[type=checkbox].row-cb{
+  width:16px;height:16px;cursor:pointer;accent-color:#48cae4;
+}
+
+/* Priority badge */
+.p-badge{
+  display:inline-block;border-radius:5px;padding:3px 10px;
+  font-size:.72rem;font-weight:700;white-space:nowrap;
+}
+.p-badge.HIGH  {background:rgba(198,40,40,.35);color:#ef9a9a;border:1px solid rgba(239,83,80,.4)}
+.p-badge.MEDIUM{background:rgba(239,108,0,.3);color:#ffcc80;border:1px solid rgba(255,152,0,.4)}
+.p-badge.LOW   {background:rgba(249,168,37,.2);color:#fff176;border:1px solid rgba(253,216,53,.3)}
+
+/* Score */
+.score-wrap{display:flex;align-items:center;gap:6px}
+.score-bar-bg{height:5px;border-radius:3px;background:rgba(255,255,255,.1);width:50px;overflow:hidden;flex-shrink:0}
+.score-bar-fill{height:100%;border-radius:3px}
+.score-val{font-size:.78rem;font-weight:600;white-space:nowrap}
+
+/* Freq */
+.freq-val{font-size:.85rem;font-weight:600;color:#90e0ef}
+
+/* Action badge */
+.act-badge{
+  background:rgba(255,255,255,.07);border-radius:20px;
+  padding:2px 10px;font-size:.72rem;color:rgba(255,255,255,.5);white-space:nowrap;
+}
+
+/* Topic */
+.topic-name{font-weight:600;color:#e0f2fe;font-size:.83rem}
+.topic-in-syn{font-size:.7rem;color:#a5d6a7;margin-left:5px}
+
+/* Product/Segment */
+.prod-seg{font-size:.76rem;color:rgba(255,255,255,.42);line-height:1.4}
+
+/* URL expand button */
+.url-btn{
+  background:rgba(72,202,228,.12);border:1px solid rgba(72,202,228,.25);
+  color:#90e0ef;border-radius:6px;padding:3px 10px;font-size:.72rem;
+  cursor:pointer;font-family:inherit;transition:all .2s;white-space:nowrap;
+}
+.url-btn:hover{background:rgba(72,202,228,.25);border-color:#48cae4}
+.url-btn.open{background:rgba(72,202,228,.25);border-color:#48cae4;color:#48cae4}
+
+/* URL expansion row */
+.url-list{padding:6px 12px 10px 44px;display:flex;flex-direction:column;gap:4px}
+.url-link{
+  color:#90e0ef;text-decoration:none;font-size:.76rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:700px;
+}
+.url-link:hover{text-decoration:underline;color:#48cae4}
+.no-urls{color:rgba(255,255,255,.3);font-size:.76rem;font-style:italic}
+
+/* Keyword */
+.kw-text{font-weight:600;color:#fff;font-size:.85rem}
+
+/* Empty state */
+.empty-state{
+  text-align:center;padding:60px 20px;color:rgba(255,255,255,.35);
+}
+.empty-state .es-icon{font-size:2.5rem;margin-bottom:12px;display:block}
+.empty-state p{font-size:.9rem}
+
+/* FOOTER BAR */
+.footer-bar{
+  background:rgba(0,0,0,.45);backdrop-filter:blur(10px);
+  border-top:1px solid rgba(255,255,255,.08);
+  padding:10px 20px;display:flex;align-items:center;justify-content:space-between;
+  flex-shrink:0;flex-wrap:wrap;gap:10px;
+}
+.footer-left{display:flex;align-items:center;gap:14px}
+.sel-count{font-size:.85rem;font-weight:600;color:#48cae4}
+.footer-btn{
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);
+  color:rgba(255,255,255,.65);border-radius:8px;padding:7px 18px;
+  font-size:.82rem;font-family:inherit;cursor:pointer;transition:all .2s;
+}
+.footer-btn:hover{background:rgba(255,255,255,.14);color:#fff}
+.export-btn{
+  background:linear-gradient(135deg,#2e7d32,#1b5e20);color:#fff;
+  border:none;border-radius:8px;padding:9px 28px;font-size:.88rem;
+  font-family:inherit;cursor:pointer;font-weight:700;
+  box-shadow:0 3px 12px rgba(0,0,0,.3);transition:opacity .2s;
+}
+.export-btn:hover{opacity:.88}
+.export-btn:disabled{opacity:.4;cursor:default}
+.export-count{font-size:.75rem;opacity:.75;margin-left:4px}
+
+/* Responsive */
+@media(max-width:700px){
+  .drop-zone{padding:40px 20px}
+  .filter-bar input[type=text]{width:140px}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== LANDING ===== -->
+<div id="landing">
+  <div class="drop-zone" id="drop-zone">
+    <span class="drop-icon">🔍</span>
+    <h1>Synonym Review Tool</h1>
+    <p class="drop-sub">
+      Reviews unmatched keywords from a taxonomy match run and lets you<br>
+      approve them as new synonyms — without re-running the matcher.
+    </p>
+    <div style="background:rgba(72,202,228,.07);border:1px solid rgba(72,202,228,.2);border-radius:10px;padding:14px 18px;margin-bottom:20px;text-align:left;font-size:.8rem;line-height:1.7;color:rgba(255,255,255,.7)">
+      <strong style="color:#48cae4;display:block;margin-bottom:6px">What file do I load?</strong>
+      A <code style="background:rgba(0,0,0,.3);padding:1px 6px;border-radius:4px">taxonomy_match_*.xlsx</code> output file produced by the Taxonomy Mapper.<br>
+      It must contain a <strong>Keyword Recommendations</strong> sheet — this is included automatically in every match run.<br>
+      <span style="color:rgba(255,255,255,.4);font-size:.75rem">Not the Gap Analysis report, not the semantic file — the match output.</span>
+    </div>
+    <button class="file-btn" onclick="document.getElementById('file-input').click()">
+      📁 &nbsp;Select Match File
+    </button>
+    <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none">
+    <p class="drop-hint">taxonomy_match_BE.xlsx · taxonomy_match_NL.xlsx · any country</p>
+    <div class="country-chips">
+      <span class="chip">🇧🇪 BE</span>
+      <span class="chip">🇳🇱 NL</span>
+      <span class="chip">🇬🇧 GB</span>
+      <span class="chip">🇸🇪 SE</span>
+    </div>
+    <div id="land-error"></div>
+  </div>
+</div>
+
+<!-- ===== REVIEW APP ===== -->
+<div id="app" style="display:none">
+
+  <!-- Top bar -->
+  <div class="top-bar">
+    <div class="top-left">
+      <span class="country-badge" id="tb-country">—</span>
+      <span class="top-filename" id="tb-file"></span>
+    </div>
+    <button class="load-btn" onclick="resetToLanding()">📁 Load Different File</button>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="stats-bar">
+    <span class="stat-pill all active" onclick="setPriorityFilter('ALL')" id="pill-all">ALL</span>
+    <span class="stat-pill high" onclick="setPriorityFilter('HIGH')" id="pill-high">— HIGH</span>
+    <span class="stat-pill med"  onclick="setPriorityFilter('MEDIUM')" id="pill-med">— MEDIUM</span>
+    <span class="stat-pill low"  onclick="setPriorityFilter('LOW')" id="pill-low">— LOW</span>
+    <span class="stat-sep">·</span>
+    <span class="stat-showing" id="stat-showing">Showing — of —</span>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <span class="filter-label">Product:</span>
+    <select id="product-filter" onchange="applyFilters()">
+      <option value="">All Products</option>
+    </select>
+    <input type="text" id="search-box" placeholder="🔎  Search keywords…" oninput="applyFilters()">
+    <label class="toggle-label">
+      <input type="checkbox" id="new-only" onchange="applyFilters()"> New synonyms only
+    </label>
+    <button class="clear-btn" onclick="clearFilters()">Clear filters</button>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="th-check"><input type="checkbox" id="check-all" onclick="toggleAll()" title="Select/deselect all visible"></th>
+          <th>Priority</th>
+          <th>Keyword</th>
+          <th>Score</th>
+          <th>Freq</th>
+          <th>Action</th>
+          <th>→ Suggested Topic</th>
+          <th>Product / Segment</th>
+          <th>URLs</th>
+        </tr>
+      </thead>
+      <tbody id="review-tbody"></tbody>
+    </table>
+    <div class="empty-state" id="empty-state" style="display:none">
+      <span class="es-icon">🔎</span>
+      <p>No keywords match the current filters.</p>
+    </div>
+  </div>
+
+  <!-- Footer bar -->
+  <div class="footer-bar">
+    <div class="footer-left">
+      <span class="sel-count" id="sel-count">0 selected</span>
+      <button class="footer-btn" onclick="selectAllHigh()">Select All HIGH</button>
+      <button class="footer-btn" onclick="selectVisible()">Select All Visible</button>
+      <button class="footer-btn" onclick="deselectAll()">Deselect All</button>
+    </div>
+    <button class="export-btn" id="export-btn" onclick="exportApproved()" disabled>
+      ✓ Export Approved Synonyms <span class="export-count" id="export-count"></span>
+    </button>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+/* ============================================================
+   GLOBALS
+   ============================================================ */
+let _allRows    = [];
+let _filtered   = [];
+let _selected   = new Set();  // indices into _allRows
+let _country    = '';
+let _fileName   = '';
+let _prioFilter = 'ALL';
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+function ss(v){
+  if(v===null||v===undefined) return '';
+  const s=String(v).trim();
+  return(s==='null'||s==='undefined'||s==='NaN')?'':s;
+}
+function esc(s){
+  return ss(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function numVal(v){
+  const n=parseFloat(String(v||'').replace('%',''));
+  return isNaN(n)?0:n;
+}
+function scoreColour(s){
+  if(s>=85) return '#69f0ae';
+  if(s>=75) return '#ffca28';
+  return '#ef5350';
+}
+
+/* ============================================================
+   FILE HANDLING
+   ============================================================ */
+function setupLanding(){
+  const inp  = document.getElementById('file-input');
+  const zone = document.getElementById('drop-zone');
+  inp.addEventListener('change', e=>{ if(e.target.files.length) handleFile(e.target.files[0]); });
+  zone.addEventListener('dragover', e=>{ e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', ()=>zone.classList.remove('drag'));
+  zone.addEventListener('drop', e=>{
+    e.preventDefault(); zone.classList.remove('drag');
+    if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+}
+
+function handleFile(file){
+  if(!file.name.match(/\.xlsx?$/i)){
+    showLandError('Please select an Excel (.xlsx) file');
+    return;
+  }
+  showLandError('Loading…');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      if(!wb.SheetNames.includes('Keyword Recommendations')){
+        const sheets = wb.SheetNames.join(', ') || '(none)';
+        showLandError('⚠ Wrong file type. This file has no "Keyword Recommendations" sheet (found: ' + sheets + ').\n\nLoad a taxonomy_match_*.xlsx file — the output produced by a Taxonomy Mapper match run, not the Gap Analysis report or the semantic input file.');
+        return;
+      }
+      loadData(wb, file.name);
+    } catch(err){
+      showLandError('Error reading file: '+err.message);
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function showLandError(msg){
+  const el=document.getElementById('land-error');
+  el.textContent=msg; el.style.display=msg?'block':'none';
+}
+
+function resetToLanding(){
+  document.getElementById('landing').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('file-input').value='';
+  _allRows=[]; _filtered=[]; _selected=new Set(); _country=''; _fileName='';
+}
+
+/* ============================================================
+   PARSE KEYWORD RECOMMENDATIONS SHEET
+   ============================================================ */
+function loadData(wb, fileName){
+  _fileName = fileName;
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets['Keyword Recommendations'],{defval:''});
+
+  // Detect country from filename
+  _country = '';
+  const m = fileName.match(/_([A-Z]{2})(?:[_\-.]|$)/);
+  if(m) _country = m[1];
+
+  // Collect URL columns (URL_1, URL_2, … URL_N)
+  const urlCols = rows.length>0
+    ? Object.keys(rows[0]).filter(k=>k.match(/^URL_\d+$/))
+    : [];
+
+  _allRows = rows.map(r=>({
+    Priority    : ss(r['Priority']).toUpperCase(),
+    Action      : ss(r['Action']),
+    Keyword     : ss(r['Keyword']),
+    Score       : numVal(r['Score']),
+    Frequency   : parseInt(ss(r['Frequency']))||0,
+    Topic       : ss(r['Topic']),
+    In_Synonyms : ss(r['In_Synonyms']).toLowerCase()==='yes',
+    Product     : ss(r['Product']),
+    Domain      : ss(r['Domain']),
+    Segment     : ss(r['Segment']),
+    Reason      : ss(r['Rejection_Reason']),
+    Recommend   : ss(r['Full_Recommendation']),
+    URLs        : urlCols.map(c=>ss(r[c])).filter(u=>u.startsWith('http')),
+  }));
+
+  // Only HIGH and MEDIUM by default (same as the original dialog)
+  _allRows = _allRows.filter(r=>r.Priority==='HIGH'||r.Priority==='MEDIUM'||r.Priority==='LOW');
+  _selected = new Set();
+
+  buildApp();
+}
+
+/* ============================================================
+   BUILD UI
+   ============================================================ */
+function buildApp(){
+  // Top bar
+  document.getElementById('tb-country').textContent = _country?`Country: ${_country}`:'Synonym Review';
+  document.getElementById('tb-file').textContent    = _fileName;
+
+  // Update stats pills
+  updateStatPills();
+
+  // Product filter
+  const prodSel = document.getElementById('product-filter');
+  prodSel.innerHTML = '<option value="">All Products</option>';
+  const prods = [...new Set(_allRows.map(r=>r.Product).filter(Boolean))].sort();
+  prods.forEach(p=>{ const o=document.createElement('option');o.value=p;o.textContent=p;prodSel.appendChild(o); });
+
+  // Show app
+  document.getElementById('landing').style.display='none';
+  document.getElementById('app').style.display='flex';
+
+  applyFilters();
+}
+
+function updateStatPills(){
+  const counts={HIGH:0,MEDIUM:0,LOW:0};
+  _allRows.forEach(r=>{ if(counts[r.Priority]!==undefined) counts[r.Priority]++; });
+  document.getElementById('pill-all').textContent  = `ALL ${_allRows.length}`;
+  document.getElementById('pill-high').textContent = `${counts.HIGH} HIGH`;
+  document.getElementById('pill-med').textContent  = `${counts.MEDIUM} MEDIUM`;
+  document.getElementById('pill-low').textContent  = `${counts.LOW} LOW`;
+}
+
+/* ============================================================
+   FILTERS
+   ============================================================ */
+function setPriorityFilter(p){
+  _prioFilter = p;
+  ['ALL','HIGH','MEDIUM','LOW'].forEach(k=>{
+    const el=document.getElementById('pill-'+k.toLowerCase().replace('medium','med').replace('all','all'));
+    if(el) el.classList.toggle('active', k===p);
+  });
+  // manual fix for id naming
+  document.getElementById('pill-all').classList.toggle('active',p==='ALL');
+  document.getElementById('pill-high').classList.toggle('active',p==='HIGH');
+  document.getElementById('pill-med').classList.toggle('active',p==='MEDIUM');
+  document.getElementById('pill-low').classList.toggle('active',p==='LOW');
+  applyFilters();
+}
+
+function applyFilters(){
+  const prod    = document.getElementById('product-filter').value;
+  const search  = document.getElementById('search-box').value.toLowerCase().trim();
+  const newOnly = document.getElementById('new-only').checked;
+
+  _filtered = _allRows.filter((r,i)=>{
+    if(_prioFilter!=='ALL' && r.Priority!==_prioFilter) return false;
+    if(prod && r.Product!==prod) return false;
+    if(newOnly && r.In_Synonyms) return false;
+    if(search && !r.Keyword.toLowerCase().includes(search) &&
+                 !r.Topic.toLowerCase().includes(search) &&
+                 !r.Product.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  renderTable();
+  updateShowing();
+}
+
+function clearFilters(){
+  document.getElementById('product-filter').value='';
+  document.getElementById('search-box').value='';
+  document.getElementById('new-only').checked=false;
+  _prioFilter='ALL';
+  setPriorityFilter('ALL');
+}
+
+function updateShowing(){
+  const vis = _filtered.length;
+  const tot = _allRows.length;
+  document.getElementById('stat-showing').textContent =
+    `Showing ${vis} of ${tot} keywords`;
+}
+
+/* ============================================================
+   RENDER TABLE
+   ============================================================ */
+function renderTable(){
+  const tbody   = document.getElementById('review-tbody');
+  const empty   = document.getElementById('empty-state');
+  tbody.innerHTML = '';
+
+  if(_filtered.length===0){
+    empty.style.display='block'; updateFooter(); return;
+  }
+  empty.style.display='none';
+
+  _filtered.forEach((r,fi)=>{
+    const globalIdx = _allRows.indexOf(r);
+    const checked   = _selected.has(globalIdx);
+    const sc        = scoreColour(r.Score);
+    const pct       = Math.min(r.Score,100);
+
+    // Main row
+    const tr = document.createElement('tr');
+    if(checked) tr.classList.add('selected-row');
+    tr.dataset.gidx = globalIdx;
+
+    tr.innerHTML =
+      `<td class="td-check">
+         <input type="checkbox" class="row-cb" data-gidx="${globalIdx}" ${checked?'checked':''} onchange="toggleRow(${globalIdx},this)">
+       </td>
+       <td><span class="p-badge ${r.Priority}">${esc(r.Priority)}</span></td>
+       <td><span class="kw-text">${esc(r.Keyword)}</span></td>
+       <td>
+         <div class="score-wrap">
+           <div class="score-bar-bg"><div class="score-bar-fill" style="width:${pct}%;background:${sc}"></div></div>
+           <span class="score-val" style="color:${sc}">${Math.round(r.Score)}%</span>
+         </div>
+       </td>
+       <td><span class="freq-val">${r.Frequency}</span></td>
+       <td><span class="act-badge">${esc(r.Action||'—')}</span></td>
+       <td>
+         <span class="topic-name">${esc(r.Topic)}</span>
+         ${r.In_Synonyms?'<span class="topic-in-syn">✓ already added</span>':''}
+       </td>
+       <td>
+         <div class="prod-seg">${esc(r.Product)}</div>
+         <div class="prod-seg">${esc(r.Segment)}</div>
+       </td>
+       <td>
+         ${r.URLs.length>0
+           ? `<button class="url-btn" onclick="toggleURLs(this,${globalIdx})">${r.URLs.length} URL${r.URLs.length!==1?'s':''}</button>`
+           : '<span style="color:rgba(255,255,255,.2);font-size:.74rem">—</span>'}
+       </td>`;
+    tbody.appendChild(tr);
+
+    // URL expansion row (hidden)
+    const urlTr = document.createElement('tr');
+    urlTr.className='url-row';
+    urlTr.id=`url-row-${globalIdx}`;
+    urlTr.style.display='none';
+    const urlTd = document.createElement('td');
+    urlTd.colSpan=9;
+    const ul = document.createElement('div');
+    ul.className='url-list';
+    if(r.URLs.length){
+      r.URLs.forEach(u=>{
+        const a=document.createElement('a');
+        a.className='url-link'; a.href=u; a.target='_blank';
+        a.textContent=u; ul.appendChild(a);
+      });
+    } else {
+      ul.innerHTML='<span class="no-urls">No sample URLs recorded</span>';
+    }
+    urlTd.appendChild(ul);
+    urlTr.appendChild(urlTd);
+    tbody.appendChild(urlTr);
+  });
+
+  updateFooter();
+}
+
+/* ============================================================
+   URL TOGGLE
+   ============================================================ */
+function toggleURLs(btn, gidx){
+  const row = document.getElementById(`url-row-${gidx}`);
+  const open = row.style.display==='none';
+  row.style.display = open?'table-row':'none';
+  btn.classList.toggle('open',open);
+  btn.textContent = open
+    ? btn.textContent.replace('URLs','URLs ▲').replace('URL ','URL ▲')
+    : btn.textContent.replace(' ▲','');
+  // re-label
+  const r=_allRows[gidx];
+  btn.textContent = open
+    ? `${r.URLs.length} URL${r.URLs.length!==1?'s':''} ▲`
+    : `${r.URLs.length} URL${r.URLs.length!==1?'s':''}`;
+  btn.classList.toggle('open',open);
+}
+
+/* ============================================================
+   SELECTION
+   ============================================================ */
+function toggleRow(gidx, cb){
+  if(cb.checked){
+    _selected.add(gidx);
+    const tr=document.querySelector(`tr[data-gidx="${gidx}"]`);
+    if(tr) tr.classList.add('selected-row');
+  } else {
+    _selected.delete(gidx);
+    const tr=document.querySelector(`tr[data-gidx="${gidx}"]`);
+    if(tr) tr.classList.remove('selected-row');
+  }
+  updateFooter();
+}
+
+function toggleAll(){
+  const master = document.getElementById('check-all');
+  if(master.checked){
+    _filtered.forEach(r=>_selected.add(_allRows.indexOf(r)));
+  } else {
+    _filtered.forEach(r=>_selected.delete(_allRows.indexOf(r)));
+  }
+  renderTable();
+}
+
+function selectAllHigh(){
+  _allRows.forEach((r,i)=>{ if(r.Priority==='HIGH') _selected.add(i); });
+  renderTable();
+}
+
+function selectVisible(){
+  _filtered.forEach(r=>_selected.add(_allRows.indexOf(r)));
+  renderTable();
+}
+
+function deselectAll(){
+  _selected.clear();
+  renderTable();
+}
+
+function updateFooter(){
+  const n = _selected.size;
+  document.getElementById('sel-count').textContent = `${n} selected`;
+  document.getElementById('export-count').textContent = n>0?`(${n})`:'';
+  document.getElementById('export-btn').disabled = n===0;
+
+  // Sync master checkbox
+  const vis   = _filtered.length;
+  const selVis= _filtered.filter(r=>_selected.has(_allRows.indexOf(r))).length;
+  const master= document.getElementById('check-all');
+  master.checked       = vis>0 && selVis===vis;
+  master.indeterminate = selVis>0 && selVis<vis;
+}
+
+/* ============================================================
+   EXPORT
+   ============================================================ */
+function exportApproved(){
+  if(_selected.size===0) return;
+
+  const synonyms = {};
+  _selected.forEach(idx=>{
+    const r = _allRows[idx];
+    if(!r.Topic || !r.Keyword) return;
+    if(!synonyms[r.Topic]) synonyms[r.Topic]=[];
+    const kw = r.Keyword.toLowerCase().trim();
+    if(!synonyms[r.Topic].includes(kw)) synonyms[r.Topic].push(kw);
+  });
+
+  const patch = {
+    country     : _country,
+    exported_at : new Date().toISOString().slice(0,19).replace('T',' '),
+    source_file : _fileName,
+    total_synonyms: Object.values(synonyms).reduce((s,v)=>s+v.length,0),
+    synonyms,
+  };
+
+  const blob = new Blob([JSON.stringify(patch,null,2)],{type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  const date = new Date().toISOString().slice(0,10);
+  a.download = `synonym_patch_${_country||'XX'}_${date}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  // Brief visual confirmation
+  const btn=document.getElementById('export-btn');
+  const orig=btn.textContent;
+  btn.textContent='✓ Downloaded!';
+  btn.style.background='linear-gradient(135deg,#0077b6,#023e8a)';
+  setTimeout(()=>{btn.textContent=orig;btn.style.background='';},2000);
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', setupLanding);
+</script>
+</body>
+</html>

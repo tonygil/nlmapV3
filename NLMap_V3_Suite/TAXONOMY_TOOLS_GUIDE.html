@@ -1,0 +1,1450 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taxonomy Improvement Tools — User &amp; Stakeholder Guide</title>
+<style>
+
+/* ══════════════════════════════════════════════════════════════
+   PAGE SETUP
+══════════════════════════════════════════════════════════════ */
+@page {
+  size: A4;
+  margin: 18mm 20mm 22mm 20mm;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --navy:   #012a4a;
+  --blue:   #0077b6;
+  --mid:    #0096c7;
+  --light:  #48cae4;
+  --pale:   #e8f4f8;
+  --pale2:  #f0f7fa;
+  --text:   #1a2332;
+  --muted:  #5a6a7a;
+  --border: #d0dde8;
+  --green:  #1b7f4a;
+  --red:    #b00020;
+  --amber:  #b35a00;
+  --purple: #5e35b1;
+  --teal:   #00796b;
+}
+
+body {
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 10pt;
+  line-height: 1.65;
+  color: var(--text);
+  background: #d8dfe8;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PAGE WRAPPER — constrains to A4 width on screen
+══════════════════════════════════════════════════════════════ */
+.page-wrap {
+  max-width: 210mm;
+  margin: 16px auto 32px;
+  background: #fff;
+  box-shadow: 0 2px 24px rgba(0,0,0,.20);
+  overflow: hidden; /* clip part-headers at page edge */
+}
+.page-body {
+  padding: 14mm 20mm 22mm;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   COVER PAGE
+══════════════════════════════════════════════════════════════ */
+.cover {
+  page-break-after: always;
+  min-height: 255mm;
+  background: linear-gradient(160deg, var(--navy) 0%, #023e8a 55%, var(--blue) 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+.cover::before {
+  content: '';
+  position: absolute; top: -90px; right: -90px;
+  width: 380px; height: 380px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(72,202,228,.16) 0%, transparent 70%);
+}
+.cover::after {
+  content: '';
+  position: absolute; bottom: -70px; left: -70px;
+  width: 300px; height: 300px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,150,199,.14) 0%, transparent 70%);
+}
+.cover-top {
+  padding: 38px 44px 0;
+  position: relative; z-index: 1;
+}
+.cover-brand {
+  display: flex; align-items: center; gap: 12px;
+  border-bottom: 1px solid rgba(255,255,255,.15);
+  padding-bottom: 20px;
+}
+.cover-brand-mark {
+  width: 40px; height: 40px;
+  background: var(--light); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 900; font-size: 15px; color: var(--navy);
+}
+.cover-brand-name {
+  font-size: 11.5pt; font-weight: 300;
+  letter-spacing: 1.5px; color: rgba(255,255,255,.7);
+}
+.cover-mid {
+  padding: 0 44px;
+  position: relative; z-index: 1;
+  flex: 1;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.cover-eyebrow {
+  font-size: 8pt; font-weight: 700; letter-spacing: 3px;
+  text-transform: uppercase; color: var(--light); margin-bottom: 14px;
+}
+.cover-title {
+  font-size: 30pt; font-weight: 800; line-height: 1.1;
+  margin-bottom: 6px; letter-spacing: -0.5px;
+}
+.cover-title .accent { color: var(--light); }
+.cover-subtitle {
+  font-size: 14pt; font-weight: 300;
+  color: rgba(255,255,255,.72); margin-bottom: 28px;
+}
+.cover-divider {
+  width: 55px; height: 4px;
+  background: linear-gradient(90deg, var(--light), transparent);
+  border-radius: 2px; margin-bottom: 26px;
+}
+.cover-desc {
+  font-size: 10pt; line-height: 1.75;
+  color: rgba(255,255,255,.6); max-width: 400px;
+}
+.cover-tools {
+  display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap;
+}
+.cover-tool-pill {
+  background: rgba(72,202,228,.18);
+  border: 1px solid rgba(72,202,228,.4);
+  border-radius: 20px; padding: 4px 14px;
+  font-size: 8pt; color: #90e0ef; font-weight: 600;
+}
+.cover-bottom {
+  padding: 20px 44px;
+  background: rgba(0,0,0,.25);
+  display: flex; justify-content: space-between; align-items: center;
+  position: relative; z-index: 1;
+}
+.cover-meta { font-size: 8pt; color: rgba(255,255,255,.5); line-height: 1.85; }
+.cover-meta strong { color: rgba(255,255,255,.8); }
+.cover-contents { text-align: right; font-size: 8pt; color: rgba(255,255,255,.38); line-height: 1.9; }
+.cover-contents strong { color: rgba(255,255,255,.6); display: block; margin-bottom: 3px; font-size: 8.5pt; }
+
+/* ══════════════════════════════════════════════════════════════
+   PART HEADERS
+══════════════════════════════════════════════════════════════ */
+.part-break { page-break-before: always; }
+.part-header {
+  background: linear-gradient(135deg, var(--navy), #023e8a);
+  color: #fff;
+  padding: 30px 38px 26px;
+  margin: 0 -20mm 26px;
+  position: relative; overflow: hidden;
+}
+.part-header.teal-header {
+  background: linear-gradient(135deg, #004d40, #00796b);
+}
+.part-header.purple-header {
+  background: linear-gradient(135deg, #1a0050, var(--purple));
+}
+.part-header::after {
+  content: '';
+  position: absolute; right: -30px; top: -30px;
+  width: 180px; height: 180px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,.1) 0%, transparent 65%);
+}
+.part-number {
+  font-size: 7.5pt; font-weight: 700; letter-spacing: 3px;
+  text-transform: uppercase; color: rgba(255,255,255,.55); margin-bottom: 5px;
+}
+.part-title {
+  font-size: 19pt; font-weight: 800; margin-bottom: 4px; line-height: 1.15;
+}
+.part-sub {
+  font-size: 9.5pt; color: rgba(255,255,255,.55); font-weight: 300;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   HEADINGS
+══════════════════════════════════════════════════════════════ */
+h2 {
+  font-size: 13pt; font-weight: 800; color: var(--navy);
+  margin: 22px 0 9px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--pale);
+  page-break-after: avoid;
+  display: flex; align-items: center; gap: 9px;
+}
+h2::before {
+  content: '';
+  display: inline-block;
+  width: 4px; height: 16px;
+  background: var(--blue);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+h3 {
+  font-size: 11pt; font-weight: 700; color: var(--blue);
+  margin: 18px 0 7px;
+  page-break-after: avoid;
+}
+h4 {
+  font-size: 10pt; font-weight: 700; color: var(--navy);
+  margin: 14px 0 5px;
+  page-break-after: avoid;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BODY
+══════════════════════════════════════════════════════════════ */
+p { margin-bottom: 9px; }
+p:last-child { margin-bottom: 0; }
+strong { color: var(--navy); }
+em { color: var(--muted); font-style: italic; }
+code {
+  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-size: 8.5pt;
+  background: var(--pale);
+  color: var(--navy);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+pre {
+  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-size: 8pt;
+  background: #f4f7fa;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--blue);
+  border-radius: 0 6px 6px 0;
+  padding: 11px 14px;
+  margin: 11px 0;
+  line-height: 1.55;
+  page-break-inside: avoid;
+  white-space: pre-wrap;
+  color: var(--text);
+}
+ul, ol { padding-left: 18px; margin: 8px 0 10px; }
+li { margin-bottom: 4px; font-size: 9.5pt; line-height: 1.55; }
+hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+
+/* ══════════════════════════════════════════════════════════════
+   TABLES
+══════════════════════════════════════════════════════════════ */
+table {
+  width: 100%; border-collapse: collapse;
+  margin: 12px 0; font-size: 9pt;
+  page-break-inside: avoid;
+}
+thead tr { background: var(--navy); color: #fff; }
+thead th {
+  padding: 8px 12px; text-align: left;
+  font-weight: 600; font-size: 8.5pt; letter-spacing: .4px;
+}
+tbody tr { border-bottom: 1px solid var(--border); }
+tbody tr:nth-child(even) { background: #f8fbfd; }
+td { padding: 8px 12px; vertical-align: top; line-height: 1.5; }
+.tbl-hl td:first-child { color: var(--blue); font-weight: 700; }
+.tbl-target { background: #e8f5e9 !important; }
+.tbl-target td { font-weight: 600; color: var(--green); }
+
+/* ══════════════════════════════════════════════════════════════
+   CALLOUTS
+══════════════════════════════════════════════════════════════ */
+.callout {
+  border-radius: 8px; padding: 12px 16px;
+  margin: 12px 0; page-break-inside: avoid;
+}
+.callout-blue   { background: var(--pale);   border-left: 4px solid var(--blue); }
+.callout-green  { background: #e8f5e9;       border-left: 4px solid var(--green); }
+.callout-amber  { background: #fff8e1;       border-left: 4px solid var(--amber); }
+.callout-red    { background: #fce4ec;       border-left: 4px solid var(--red); }
+.callout-teal   { background: #e0f2f1;       border-left: 4px solid var(--teal); }
+.callout-purple { background: #ede7f6;       border-left: 4px solid var(--purple); }
+.callout-title {
+  font-weight: 700; font-size: 9pt;
+  margin-bottom: 5px; display: flex; align-items: center; gap: 6px;
+}
+.callout-blue .callout-title   { color: var(--navy); }
+.callout-green .callout-title  { color: var(--green); }
+.callout-amber .callout-title  { color: var(--amber); }
+.callout-red .callout-title    { color: var(--red); }
+.callout-teal .callout-title   { color: var(--teal); }
+.callout-purple .callout-title { color: var(--purple); }
+.callout p { font-size: 9pt; margin-bottom: 4px; }
+
+/* ══════════════════════════════════════════════════════════════
+   IMPROVEMENT LOOP DIAGRAM
+══════════════════════════════════════════════════════════════ */
+.loop-diagram {
+  display: flex; align-items: stretch; gap: 0;
+  margin: 16px 0; page-break-inside: avoid;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+.loop-col {
+  flex: 1;
+  padding: 18px 16px;
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center;
+}
+.loop-col.col-gap {
+  background: linear-gradient(180deg, #e0f2f1, #b2dfdb);
+  border-right: 1px solid var(--border);
+}
+.loop-col.col-act {
+  background: linear-gradient(180deg, var(--pale), #d0eaf5);
+  border-right: 1px solid var(--border);
+}
+.loop-col.col-measure {
+  background: linear-gradient(180deg, #e8f5e9, #c8e6c9);
+}
+.loop-icon {
+  font-size: 22pt; margin-bottom: 8px; line-height: 1;
+}
+.loop-tool {
+  font-size: 7pt; font-weight: 700; letter-spacing: 1.5px;
+  text-transform: uppercase; margin-bottom: 6px;
+  padding: 2px 10px; border-radius: 12px;
+}
+.loop-tool.gap-tool { background: rgba(0,121,107,.15); color: var(--teal); }
+.loop-tool.syn-tool { background: rgba(0,119,182,.15); color: var(--blue); }
+.loop-tool.result   { background: rgba(27,127,74,.15);  color: var(--green); }
+.loop-title { font-size: 11pt; font-weight: 800; color: var(--navy); margin-bottom: 6px; }
+.loop-items { list-style: none; padding: 0; text-align: left; width: 100%; }
+.loop-items li {
+  font-size: 8pt; color: var(--text); padding: 3px 0;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+  display: flex; gap: 6px; align-items: flex-start;
+}
+.loop-items li:last-child { border: none; }
+.loop-items li::before { content: '›'; color: var(--blue); font-weight: 700; flex-shrink: 0; }
+.loop-arrow {
+  width: 28px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14pt; color: var(--blue); font-weight: 900;
+  background: #fff;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PROGRESS BARS
+══════════════════════════════════════════════════════════════ */
+.progress-row {
+  display: flex; align-items: center; gap: 10px;
+  margin: 5px 0; font-size: 9pt;
+}
+.progress-label { width: 155px; flex-shrink: 0; color: var(--muted); font-size: 8pt; }
+.progress-bar-wrap {
+  flex: 1; height: 20px;
+  background: var(--pale); border-radius: 4px; overflow: hidden;
+  border: 1px solid var(--border);
+}
+.progress-bar-fill {
+  height: 100%; border-radius: 4px 0 0 4px;
+  display: flex; align-items: center; padding-left: 8px;
+  font-size: 8pt; font-weight: 700; color: #fff;
+}
+.bar-24 { width:24%; background:linear-gradient(90deg,#c62828,#e53935); }
+.bar-26 { width:26%; background:linear-gradient(90deg,#c62828,#e53935); }
+.bar-57 { width:57%; background:linear-gradient(90deg,#e65100,#f57c00); }
+.bar-58 { width:58%; background:linear-gradient(90deg,#f57c00,#ffa000); }
+.bar-61 { width:61%; background:linear-gradient(90deg,#e65100,#f57c00); }
+.bar-80 { width:80%; background:linear-gradient(90deg,var(--green),#43a047); border-radius:4px; }
+.progress-note { width: 95px; flex-shrink: 0; font-size: 7.5pt; color: var(--muted); }
+
+/* ══════════════════════════════════════════════════════════════
+   KPI CARDS
+══════════════════════════════════════════════════════════════ */
+.kpi-row {
+  display: grid; grid-template-columns: repeat(3,1fr);
+  gap: 11px; margin: 14px 0;
+}
+.kpi-card {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 13px 14px; text-align: center;
+  background: linear-gradient(145deg, #fff, var(--pale));
+  page-break-inside: avoid;
+}
+.kpi-val { font-size: 20pt; font-weight: 800; color: var(--blue); line-height: 1; margin-bottom: 3px; }
+.kpi-label { font-size: 7.5pt; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+.kpi-sub { font-size: 8pt; color: var(--muted); margin-top: 3px; }
+
+/* ══════════════════════════════════════════════════════════════
+   STEPS
+══════════════════════════════════════════════════════════════ */
+.steps { margin: 14px 0; }
+.step { display: flex; gap: 13px; margin-bottom: 14px; page-break-inside: avoid; }
+.step-num {
+  width: 28px; height: 28px; flex-shrink: 0;
+  background: var(--blue); color: #fff; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 10.5pt; margin-top: 1px;
+}
+.step-content { flex: 1; }
+.step-title { font-weight: 700; font-size: 10pt; color: var(--navy); margin-bottom: 3px; }
+.step-body { font-size: 9.5pt; line-height: 1.6; }
+
+/* ══════════════════════════════════════════════════════════════
+   SCREEN MOCKUPS
+══════════════════════════════════════════════════════════════ */
+.screen-mock {
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  margin: 13px 0; font-size: 8pt;
+  page-break-inside: avoid;
+  box-shadow: 0 2px 8px rgba(0,0,0,.07);
+}
+.screen-bar {
+  background: var(--navy); color: rgba(255,255,255,.8);
+  padding: 7px 13px; font-size: 8pt;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.screen-bar strong { color: #fff; }
+.screen-stats {
+  background: #eaf3f8; padding: 7px 13px;
+  display: flex; gap: 8px; align-items: center;
+  border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.pill {
+  padding: 2px 10px; border-radius: 12px;
+  font-size: 7.5pt; font-weight: 700;
+}
+.pill-all  { background:#d0dde8; color:var(--navy); }
+.pill-high { background:#ffcdd2; color:#b71c1c; }
+.pill-med  { background:#ffe0b2; color:#e65100; }
+.pill-low  { background:#fff9c4; color:#f57f17; }
+.screen-filters {
+  background: #f8fbfd; padding: 6px 13px;
+  border-bottom: 1px solid var(--border);
+  display: flex; gap: 8px; align-items: center; font-size: 7.5pt; color: var(--muted);
+}
+.mock-select {
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 8px; background: #fff; font-size: 7.5pt; color: var(--text);
+}
+.screen-table { width: 100%; border-collapse: collapse; }
+.screen-table th {
+  background: var(--navy); color: #fff;
+  padding: 6px 10px; text-align: left; font-size: 7.5pt;
+}
+.screen-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 8pt; }
+.screen-table tr:nth-child(even) td { background: #f8fbfd; }
+.mock-high { background:#ffcdd2;color:#b71c1c;padding:2px 7px;border-radius:4px;font-size:7pt;font-weight:700; }
+.mock-med  { background:#ffe0b2;color:#e65100;padding:2px 7px;border-radius:4px;font-size:7pt;font-weight:700; }
+.mock-score { display:flex;align-items:center;gap:5px; }
+.mock-bar { width:36px;height:5px;background:#eee;border-radius:3px;overflow:hidden; }
+.mock-bar-fill { height:100%;border-radius:3px; }
+.screen-footer {
+  background: #f8fbfd; padding: 7px 13px;
+  display: flex; justify-content: space-between; align-items: center;
+  border-top: 1px solid var(--border); flex-wrap: wrap; gap: 6px;
+}
+.mock-btn { padding:4px 10px;border-radius:5px;font-size:7.5pt;border:1px solid var(--border);background:#fff;color:var(--text); }
+.mock-btn-export { background:var(--green);color:#fff;border:none;padding:5px 12px;border-radius:5px;font-size:8pt;font-weight:600; }
+.mock-sel { font-size:8pt;font-weight:700;color:var(--blue); }
+
+/* Dashboard mockup extras */
+.dash-hero {
+  background: linear-gradient(135deg, #023e8a, var(--blue));
+  color: #fff; padding: 12px 14px;
+  display: flex; gap: 20px; align-items: center;
+}
+.dash-donut-placeholder {
+  width: 60px; height: 60px; border-radius: 50%;
+  border: 8px solid rgba(255,255,255,.2);
+  border-top-color: #ef5350;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9pt; font-weight: 800; flex-shrink: 0;
+}
+.dash-kpis { display: flex; gap: 18px; flex: 1; }
+.dash-kpi { text-align: center; }
+.dash-kpi .dk-val { font-size: 14pt; font-weight: 800; line-height: 1; }
+.dash-kpi .dk-label { font-size: 7pt; opacity: .6; text-transform: uppercase; letter-spacing: .8px; }
+.dash-kpi.green .dk-val  { color: #69f0ae; }
+.dash-kpi.red .dk-val    { color: #ef9a9a; }
+.dash-kpi.yellow .dk-val { color: #fff176; }
+.dash-section-row {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 0; border-top: 1px solid var(--border);
+}
+.dash-section {
+  padding: 10px 13px; border-right: 1px solid var(--border);
+  font-size: 8pt;
+}
+.dash-section:last-child { border-right: none; }
+.dash-section-title {
+  font-size: 7.5pt; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .8px;
+  margin-bottom: 7px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.nm-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 3px 0; border-bottom: 1px dotted var(--border);
+}
+.nm-row:last-child { border: none; }
+.nm-topic { font-size: 8pt; color: var(--text); }
+.nm-badge {
+  font-size: 7pt; font-weight: 700;
+  padding: 1px 7px; border-radius: 10px;
+}
+.nm-high  { background: #ffcdd2; color: #b71c1c; }
+.nm-med   { background: #ffe0b2; color: #e65100; }
+.prog-bar-mini { height: 8px; background: #eee; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.prog-bar-mini-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--blue), var(--light)); }
+
+/* ══════════════════════════════════════════════════════════════
+   DECISION TREES
+══════════════════════════════════════════════════════════════ */
+.dt-wrap { margin: 14px 0; page-break-inside: avoid; }
+.dt-title {
+  font-size: 8.5pt; font-weight: 700; color: var(--navy);
+  background: var(--pale); border: 1px solid var(--border);
+  border-radius: 6px 6px 0 0; padding: 7px 13px;
+  text-align: center; border-bottom: none;
+}
+.dt-body {
+  border: 1px solid var(--border); border-radius: 0 0 6px 6px;
+  padding: 14px 12px 11px; background: #fafcfe;
+}
+.dt-node {
+  border-radius: 6px; padding: 8px 14px;
+  font-size: 8.5pt; font-weight: 600;
+  text-align: center; margin: 0 auto 3px; display: block;
+  max-width: 380px;
+}
+.dt-start { background: var(--navy); color: #fff; border-radius: 20px; }
+.dt-question {
+  background: #e3f2fd; color: var(--navy);
+  border: 2px solid var(--mid); font-style: italic;
+}
+.dt-arrow-down { text-align: center; color: var(--blue); font-size: 13pt; line-height: 1; margin: 2px auto; display: block; }
+.dt-branches { display: flex; gap: 10px; margin-top: 4px; justify-content: center; }
+.dt-branch { flex: 1; max-width: 220px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.dt-branch-label { font-size: 8pt; font-weight: 800; padding: 3px 13px; border-radius: 12px; letter-spacing: 1px; }
+.lbl-yes { background:#e8f5e9; color:var(--green); border:1.5px solid #a5d6a7; }
+.lbl-no  { background:#fce4ec; color:var(--red);   border:1.5px solid #f48fb1; }
+.dt-outcome {
+  font-size: 8.5pt; font-weight: 700; padding: 7px 11px;
+  border-radius: 6px; text-align: center; width: 100%;
+}
+.outcome-approve { background:#e8f5e9; color:var(--green); border:1.5px solid #a5d6a7; }
+.outcome-reject  { background:#fce4ec; color:var(--red);   border:1.5px solid #f48fb1; }
+.outcome-warn    { background:#fff8e1; color:var(--amber);  border:1.5px solid #ffe082; }
+
+/* ══════════════════════════════════════════════════════════════
+   APPROVE / REJECT GRID
+══════════════════════════════════════════════════════════════ */
+.ar-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin: 11px 0; }
+.ar-box { border-radius: 7px; padding: 11px 13px; page-break-inside: avoid; }
+.ar-approve { background: #e8f5e9; border: 1.5px solid #a5d6a7; }
+.ar-reject  { background: #fce4ec; border: 1.5px solid #f48fb1; }
+.ar-title { font-weight: 700; font-size: 9pt; display: flex; align-items: center; gap: 5px; margin-bottom: 7px; }
+.ar-approve .ar-title { color: var(--green); }
+.ar-reject  .ar-title { color: var(--red); }
+.ar-list { list-style: none; padding: 0; }
+.ar-list li { font-size: 8.5pt; line-height: 1.5; padding: 3px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+.ar-list li:last-child { border: none; }
+
+/* ══════════════════════════════════════════════════════════════
+   WORKFLOW CHAIN
+══════════════════════════════════════════════════════════════ */
+.workflow {
+  display: flex; align-items: flex-start; gap: 0;
+  margin: 13px 0; page-break-inside: avoid;
+}
+.wf-step { flex: 1; text-align: center; position: relative; min-width: 60px; }
+.wf-step:not(:last-child)::after {
+  content: '→';
+  position: absolute; right: -7px; top: 13px;
+  font-size: 13pt; color: var(--blue); font-weight: 700;
+}
+.wf-icon {
+  width: 40px; height: 40px; margin: 0 auto 4px;
+  background: var(--blue); color: #fff; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15pt; line-height: 1;
+}
+.wf-icon.teal  { background: var(--teal); }
+.wf-icon.green { background: var(--green); }
+.wf-label { font-size: 7.5pt; font-weight: 700; color: var(--navy); line-height: 1.3; }
+.wf-sub   { font-size: 7pt; color: var(--muted); margin-top: 2px; }
+
+/* ══════════════════════════════════════════════════════════════
+   SUMMARY / FAQ
+══════════════════════════════════════════════════════════════ */
+.summary-card {
+  border: 2px solid var(--blue); border-radius: 10px; overflow: hidden;
+  margin: 14px 0; page-break-inside: avoid;
+}
+.summary-card-header {
+  background: var(--navy); color: #fff;
+  padding: 9px 15px; font-weight: 700; font-size: 10pt; letter-spacing: .4px;
+}
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; }
+.summary-item {
+  padding: 9px 15px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.summary-item:nth-child(even) { border-right: none; }
+.summary-item:nth-last-child(-n+2) { border-bottom: none; }
+.si-label { font-size: 7.5pt; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 3px; }
+.si-val { font-size: 9pt; color: var(--text); line-height: 1.5; }
+
+.faq-item { border-bottom: 1px solid var(--border); padding: 9px 0; page-break-inside: avoid; }
+.faq-q { font-weight: 700; color: var(--navy); font-size: 9.5pt; margin-bottom: 3px; }
+.faq-a { font-size: 9pt; color: var(--text); line-height: 1.6; }
+
+/* ══════════════════════════════════════════════════════════════
+   PRINT HELPER
+══════════════════════════════════════════════════════════════ */
+.print-instructions {
+  background: #fffde7; border: 2px dashed #fdd835;
+  border-radius: 8px; padding: 13px 17px;
+  margin-bottom: 18px; font-size: 9pt; line-height: 1.7;
+}
+.print-instructions strong { color: var(--amber); }
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE — narrow screens
+══════════════════════════════════════════════════════════════ */
+@media screen and (max-width: 640px) {
+  .page-wrap { margin: 0; box-shadow: none; }
+  .page-body { padding: 8mm 6mm 16mm; }
+  .part-header { margin: 0 -6mm 20px; padding: 22px 18px 16px; }
+  .cover-top { padding: 22px 18px 0; }
+  .cover-mid { padding: 0 18px; }
+  .cover-title { font-size: 20pt; }
+  .cover-bottom { padding: 14px 18px; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cover-contents { text-align: left; }
+  .kpi-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ar-grid { grid-template-columns: 1fr; }
+  .summary-grid { grid-template-columns: 1fr; }
+  .loop-diagram { flex-direction: column; }
+  .loop-arrow { width: 100%; height: 28px; writing-mode: horizontal-tb;
+    border: none; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .progress-row { flex-wrap: wrap; gap: 4px; }
+  .progress-label { width: 100%; margin-bottom: 2px; }
+  .progress-note { display: none; }
+  .workflow { flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .wf-step:not(:last-child)::after { display: none; }
+  .dash-kpis { flex-wrap: wrap; gap: 10px; }
+  .dash-section-row { grid-template-columns: 1fr; }
+  .dash-section { border-right: none; border-bottom: 1px solid var(--border); }
+  .dash-section:last-child { border-bottom: none; }
+  .dash-hero { flex-direction: column; gap: 12px; }
+}
+
+@media print {
+  body { background: #fff; }
+  .page-wrap { max-width: none; margin: 0; box-shadow: none; overflow: visible; }
+  .page-body { padding: 0; }
+  .print-instructions { display: none; }
+  .cover { min-height: 0; height: calc(297mm - 40mm); margin: -18mm -20mm 0; overflow: hidden; }
+  .part-header { margin: 0 -20mm 26px; }
+}
+
+</style>
+</head>
+<body>
+
+<!-- PRINT INSTRUCTIONS (outside page wrap — screen only) -->
+<div class="print-instructions" style="max-width:210mm;margin:12px auto;box-sizing:border-box">
+  <strong>To save as PDF:</strong> Press <strong>Ctrl + P</strong> → destination <strong>Save as PDF</strong>
+  → paper size <strong>A4</strong> → enable <strong>Background graphics</strong> → Save.
+  This notice will not appear in the PDF.
+</div>
+
+<div class="page-wrap">
+
+<!-- ════════════════════════════ COVER ════════════════════════════ -->
+<div class="cover">
+  <div class="cover-top">
+    <div class="cover-brand">
+      <div class="cover-brand-mark">WK</div>
+      <span class="cover-brand-name">Wolters Kluwer · Tax &amp; Accounting · Taxonomy Mapper V3</span>
+    </div>
+  </div>
+  <div class="cover-mid">
+    <div class="cover-eyebrow">Reference Guide · February 2026</div>
+    <div class="cover-title">Taxonomy<br><span class="accent">Improvement</span><br>Tools</div>
+    <div class="cover-subtitle">User &amp; Stakeholder Guide</div>
+    <div class="cover-divider"></div>
+    <div class="cover-desc">
+      A complete guide to the two tools that drive taxonomy match rate
+      improvement — how to diagnose coverage gaps and how to fix them,
+      from first run to 80% and beyond.
+    </div>
+    <div class="cover-tools">
+      <span class="cover-tool-pill">📊 Gap Analysis Dashboard</span>
+      <span class="cover-tool-pill">🔍 Synonym Review Tool</span>
+    </div>
+  </div>
+  <div class="cover-bottom">
+    <div class="cover-meta">
+      <strong>Version</strong> 3.25 · February 2026<br>
+      <strong>Applies to</strong> BE · NL · SE<br>
+      <strong>Files</strong> gap_analysis_dashboard.html · synonym_review.html
+    </div>
+    <div class="cover-contents">
+      <strong>Contents</strong>
+      Part One — Stakeholder Overview<br>
+      Part Two — Gap Analysis Dashboard<br>
+      Part Three — Synonym Review Tool<br>
+      Part Four — The Improvement Loop
+    </div>
+  </div>
+</div>
+
+
+<div class="page-body">
+
+<!-- ════════════════════════════ PART ONE — STAKEHOLDER ════════════════════════════ -->
+<div class="part-header">
+  <div class="part-number">Part One</div>
+  <div class="part-title">Stakeholder Overview</div>
+  <div class="part-sub">The problem, the solution, what it costs, and what it delivers</div>
+</div>
+
+<h2>The Problem: A Language Gap</h2>
+<p>
+  The Taxonomy Mapper automatically assigns support articles to taxonomy categories —
+  <em>BTW aangifte</em>, <em>Jaarrekening</em>, <em>CODA bestanden</em>, <em>Peppol E-invoicing</em>
+  and so on. It works by comparing keywords extracted from each article against the
+  formal category names in the taxonomy using a similarity score.
+</p>
+<p>
+  The challenge is that article content uses everyday language while the taxonomy uses
+  precise, formal names. If an article discusses <strong>"aangifte"</strong> but the category
+  is called <strong>"BTW aangifte"</strong>, the tool scores them at only 62% — just below
+  the 80% minimum. The article goes <strong>unmapped</strong>, receiving no category tag,
+  even though any reader would immediately recognise it belongs to <em>BTW aangifte</em>.
+</p>
+<p>
+  A <strong>synonym</strong> bridges this gap. Adding <em>"aangifte"</em> as a synonym for
+  <em>BTW aangifte</em> tells the system they mean the same thing. Every article mentioning
+  "aangifte" is then correctly mapped — automatically, on every future run.
+</p>
+
+<div class="callout callout-blue">
+  <div class="callout-title">💡 A low match rate is not a content problem</div>
+  <p>It almost always means synonyms have not yet been built up for that country's language
+  and product terminology. The articles are correct — the bridge between content language
+  and taxonomy language is simply missing.</p>
+</div>
+
+<h2>The Two-Tool Solution</h2>
+<p>Two browser-based tools work together as a continuous improvement loop:</p>
+
+<div class="loop-diagram">
+  <div class="loop-col col-gap">
+    <div class="loop-icon">📊</div>
+    <div class="loop-tool gap-tool">Gap Analysis Dashboard</div>
+    <div class="loop-title">Diagnose</div>
+    <ul class="loop-items">
+      <li>What is the current match rate?</li>
+      <li>Which topics have never matched any article?</li>
+      <li>Are there phantom topics (data quality)?</li>
+      <li>How has the match rate changed over time?</li>
+      <li>Where should the reviewer focus?</li>
+    </ul>
+  </div>
+  <div class="loop-arrow">⇄</div>
+  <div class="loop-col col-act">
+    <div class="loop-icon">🔍</div>
+    <div class="loop-tool syn-tool">Synonym Review Tool</div>
+    <div class="loop-title">Act</div>
+    <ul class="loop-items">
+      <li>Which keywords nearly matched but fell short?</li>
+      <li>How many articles does each keyword affect?</li>
+      <li>Are the sample articles genuinely about the suggested category?</li>
+      <li>Approve, export, and apply synonyms in one session.</li>
+    </ul>
+  </div>
+  <div class="loop-arrow">⇄</div>
+  <div class="loop-col col-measure">
+    <div class="loop-icon">📈</div>
+    <div class="loop-tool result">Measure &amp; Repeat</div>
+    <div class="loop-title">Improve</div>
+    <ul class="loop-items">
+      <li>Re-run the matcher with new synonyms live.</li>
+      <li>Match rate rises immediately.</li>
+      <li>Gap Analysis records the improvement.</li>
+      <li>New near-misses surface for the next round.</li>
+    </ul>
+  </div>
+</div>
+
+<h2>What the Match Rate Means</h2>
+<table>
+  <thead><tr><th width="18%">Match Rate</th><th>Business Impact</th></tr></thead>
+  <tbody>
+    <tr><td>&lt; 30%</td><td>Most articles are uncategorised. Site navigation, search relevance, and content governance reporting are unreliable.</td></tr>
+    <tr><td>30–60%</td><td>Partial coverage. High-traffic topics are mapped; specialist and product-specific content is not.</td></tr>
+    <tr><td>60–80%</td><td>Good working coverage. Most common customer journeys are mapped. Remaining gaps are in long-tail product topics.</td></tr>
+    <tr class="tbl-target"><td>≥ 80%</td><td>Target state. Taxonomy is actionable for site navigation, search, and content governance. Ongoing work shifts to light maintenance.</td></tr>
+  </tbody>
+</table>
+
+<h2>Real Results: Belgium</h2>
+<p>The BE taxonomy was launched with minimal synonyms. The progress below shows how quickly the match rate can move once the right tools are applied:</p>
+
+<div style="margin:14px 0">
+  <div class="progress-row">
+    <div class="progress-label">18 Feb · Baseline</div>
+    <div class="progress-bar-wrap"><div class="progress-bar-fill bar-24">24%</div></div>
+    <div class="progress-note">Almost no synonyms</div>
+  </div>
+  <div class="progress-row">
+    <div class="progress-label">18 Feb · Product mapping fixes</div>
+    <div class="progress-bar-wrap"><div class="progress-bar-fill bar-26">26%</div></div>
+    <div class="progress-note">Config corrected</div>
+  </div>
+  <div class="progress-row">
+    <div class="progress-label">19 Feb · Product alias fix (v3.25)</div>
+    <div class="progress-bar-wrap"><div class="progress-bar-fill bar-57">57%</div></div>
+    <div class="progress-note">+31pp · no new synonyms</div>
+  </div>
+  <div class="progress-row">
+    <div class="progress-label">19 Feb · 73 synonyms applied</div>
+    <div class="progress-bar-wrap"><div class="progress-bar-fill bar-58">58.4%</div></div>
+    <div class="progress-note">+1.4pp · synonym patch</div>
+  </div>
+  <div class="progress-row">
+    <div class="progress-label">Target · ongoing sessions</div>
+    <div class="progress-bar-wrap"><div class="progress-bar-fill bar-80">80%</div></div>
+    <div class="progress-note">~388 more URLs needed</div>
+  </div>
+</div>
+
+<h2>Country Status at a Glance</h2>
+<p>The same two-tool workflow applies identically to Belgium, Netherlands, and Sweden. Only the country code and language-specific terminology differ.</p>
+
+<table>
+  <thead><tr><th>Country</th><th>Code</th><th>Language</th><th>Current Match Rate</th><th>Unmapped URLs</th><th>Never-Matched Topics</th><th>Status</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Belgium</strong></td><td>BE</td><td>Dutch / French</td>
+      <td><strong style="color:var(--amber)">58.4%</strong></td>
+      <td>748 / 1,799</td><td>28 / 130</td>
+      <td>🔄 In progress — synonym sessions ongoing</td>
+    </tr>
+    <tr>
+      <td><strong>Netherlands</strong></td><td>NL</td><td>Dutch</td>
+      <td><em style="color:var(--muted)">Not yet run</em></td>
+      <td>—</td><td>—</td>
+      <td>⬜ Awaiting first match run + synonym build-up</td>
+    </tr>
+    <tr>
+      <td><strong>Sweden</strong></td><td>SE</td><td>Swedish</td>
+      <td><em style="color:var(--muted)">Not yet run</em></td>
+      <td>—</td><td>—</td>
+      <td>⬜ Awaiting first match run + synonym build-up</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-blue">
+  <div class="callout-title">🌍 Starting a new country (NL or SE)</div>
+  <p>The workflow is identical. Select the country in the GUI dropdown (or use <code>-c NL</code> / <code>-c SE</code> on the CLI), run the matcher, then open <code>synonym_review.html</code> and load the match output. Expect the first run to be at 20–30% — the first synonym session typically moves it to 50–60%.</p>
+  <p style="margin-top:5px">Synonyms are stored per-country in <code>countries/NL/synonyms.json</code> and <code>countries/SE/synonyms.json</code> — completely independent of each other and of BE.</p>
+</div>
+
+<h2>Time Investment</h2>
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-val">~30</div>
+    <div class="kpi-label">Minutes</div>
+    <div class="kpi-sub">per review session (HIGH items)</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-val">3–4</div>
+    <div class="kpi-label">Iterations</div>
+    <div class="kpi-sub">from standing start to 80%</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-val">&lt;30</div>
+    <div class="kpi-label">Min / month</div>
+    <div class="kpi-sub">maintenance once 80% is reached</div>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>Task</th><th>Who</th><th>Time</th></tr></thead>
+  <tbody>
+    <tr><td>Review Gap Analysis Dashboard — understand current state</td><td>Reviewer</td><td>5 min</td></tr>
+    <tr><td>Review HIGH priority synonyms in Synonym Review Tool</td><td>Reviewer</td><td>20–25 min</td></tr>
+    <tr><td>Export patch and apply synonyms</td><td>Reviewer / developer</td><td>3 min</td></tr>
+    <tr><td>Re-run matcher and regenerate Gap Analysis</td><td>Automated</td><td>20 min</td></tr>
+    <tr class="tbl-hl"><td><strong>Total per iteration</strong></td><td></td><td><strong>~50 min</strong></td></tr>
+  </tbody>
+</table>
+
+
+<!-- ════════════════════════════ PART TWO — GAP ANALYSIS DASHBOARD ════════════════════════════ -->
+<div class="part-break"></div>
+<div class="part-header teal-header">
+  <div class="part-number">Part Two</div>
+  <div class="part-title">Gap Analysis Dashboard</div>
+  <div class="part-sub">gap_analysis_dashboard.html — your diagnostic view</div>
+</div>
+
+<h2>What It Is</h2>
+<p>
+  The Gap Analysis Dashboard reads a <strong>TAXONOMY_GAP_ANALYSIS_REPORT*.xlsx</strong> file
+  and turns it into an interactive visual overview of your taxonomy coverage. It answers
+  the question: <em>"Where am I and what do I need to fix?"</em>
+</p>
+<p>
+  It is the starting point for every improvement session — open it first, understand
+  the current state, then move to the Synonym Review Tool to act on what you find.
+</p>
+
+<h2>What File to Load</h2>
+<div class="callout callout-teal">
+  <div class="callout-title">📂 File: TAXONOMY_GAP_ANALYSIS_REPORT*.xlsx</div>
+  <p><strong>Generate it from the GUI:</strong> Reports tab → Taxonomy Gap Analysis Report → select your match output and taxonomy files → Generate.</p>
+  <p><strong>Or from the command line:</strong> <code>python generate_taxonomy_gap_analysis.py</code></p>
+  <p style="margin-top:6px;color:var(--muted);font-size:8.5pt">Not the match output file. Not the semantic input file. The Gap Analysis report specifically.</p>
+</div>
+
+<h2>Screen Layout</h2>
+
+<div class="screen-mock">
+  <div class="screen-bar">
+    <strong>Taxonomy Gap Analysis Dashboard</strong>
+    <span style="opacity:.5">📁 Load Different File</span>
+  </div>
+  <div class="dash-hero">
+    <div style="text-align:center">
+      <div class="dash-donut-placeholder" style="border-top-color:#f57c00">58%</div>
+      <div style="font-size:7pt;opacity:.6;margin-top:4px">Match Rate</div>
+    </div>
+    <div class="dash-kpis">
+      <div class="dash-kpi green">
+        <div class="dk-val">1051</div>
+        <div class="dk-label">Mapped</div>
+      </div>
+      <div class="dash-kpi red">
+        <div class="dk-val">748</div>
+        <div class="dk-label">Unmapped</div>
+      </div>
+      <div class="dash-kpi yellow">
+        <div class="dk-val">1799</div>
+        <div class="dk-label">Total URLs</div>
+      </div>
+      <div class="dash-kpi" style="color:#90e0ef">
+        <div class="dk-val">130</div>
+        <div class="dk-label">Topics</div>
+      </div>
+    </div>
+  </div>
+  <div class="dash-section-row">
+    <div class="dash-section">
+      <div class="dash-section-title">Never-Matched Topics (28)</div>
+      <div class="nm-row"><span class="nm-topic">Dossierbeheer</span><span class="nm-badge nm-high">HIGH</span></div>
+      <div class="nm-row"><span class="nm-topic">Aangifteassistent</span><span class="nm-badge nm-high">HIGH</span></div>
+      <div class="nm-row"><span class="nm-topic">Rapportage</span><span class="nm-badge nm-med">MEDIUM</span></div>
+      <div class="nm-row"><span class="nm-topic">Gebruikersbeheer</span><span class="nm-badge nm-med">MEDIUM</span></div>
+      <div style="font-size:7.5pt;color:var(--muted);margin-top:5px">+ 24 more · sorted by priority</div>
+    </div>
+    <div class="dash-section">
+      <div class="dash-section-title">Match Rate Over Time</div>
+      <div style="font-size:7.5pt;color:var(--muted);margin-bottom:6px">Last 4 runs — BE</div>
+      <div style="font-size:8pt;margin:3px 0">18 Feb 10:13 &nbsp; 24.2%
+        <div class="prog-bar-mini"><div class="prog-bar-mini-fill" style="width:24%"></div></div>
+      </div>
+      <div style="font-size:8pt;margin:3px 0">18 Feb 16:30 &nbsp; 26.4%
+        <div class="prog-bar-mini"><div class="prog-bar-mini-fill" style="width:26%"></div></div>
+      </div>
+      <div style="font-size:8pt;margin:3px 0">19 Feb 07:32 &nbsp; 57.1%
+        <div class="prog-bar-mini"><div class="prog-bar-mini-fill" style="width:57%"></div></div>
+      </div>
+      <div style="font-size:8pt;margin:3px 0">19 Feb 10:59 &nbsp; 58.4%
+        <div class="prog-bar-mini"><div class="prog-bar-mini-fill" style="width:58%;background:linear-gradient(90deg,#f57c00,#ffa000)"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>Reading Each Section</h2>
+
+<h3>The Match Rate Ring</h3>
+<p>The large ring chart in the hero panel shows the current match rate as a percentage. The colour indicates health:</p>
+<table>
+  <thead><tr><th>Colour</th><th>Range</th><th>What it means</th></tr></thead>
+  <tbody>
+    <tr><td style="color:#c62828;font-weight:700">Red</td><td>&lt; 40%</td><td>Critical — most articles uncategorised</td></tr>
+    <tr><td style="color:#e65100;font-weight:700">Amber</td><td>40–60%</td><td>Needs work — partial coverage</td></tr>
+    <tr><td style="color:#f9a825;font-weight:700">Yellow</td><td>60–75%</td><td>Good progress — closing in on target</td></tr>
+    <tr class="tbl-target"><td style="color:var(--green);font-weight:700">Green</td><td>≥ 80%</td><td>Target reached — maintenance mode</td></tr>
+  </tbody>
+</table>
+
+<h3>Never-Matched Topics</h3>
+<p>
+  These are taxonomy categories that have <strong>never matched a single article</strong> across
+  all runs. They represent blind spots — the taxonomy says these topics exist, but no article
+  has ever been assigned to them.
+</p>
+<p>
+  This can mean one of two things:
+</p>
+<ul>
+  <li><strong>The topic needs synonyms</strong> — the terminology in articles doesn't match the formal category name closely enough. Fix: add synonyms via the Synonym Review Tool or Synonym Assistant.</li>
+  <li><strong>The topic may no longer be relevant</strong> — no articles about this subject exist in the content set. Fix: raise with the taxonomy owner for review.</li>
+</ul>
+
+<h3>Phantom Topics</h3>
+<p>
+  Topics appearing in match results that do <strong>not exist in the current taxonomy</strong>.
+  These are a data quality signal — they usually indicate the match was run against an
+  older version of the taxonomy, or a topic was renamed or removed.
+</p>
+<div class="callout callout-amber">
+  <div class="callout-title">⚠ Phantom topics should be zero</div>
+  <p>If you see phantom topics, re-run the matcher using the current taxonomy file and regenerate the Gap Analysis. Do not add synonyms until the taxonomy file is confirmed correct.</p>
+</div>
+
+<h3>Match Rate Over Time</h3>
+<p>
+  Every time you generate a Gap Analysis report, the run is recorded in a progress file
+  (<code>gap_analysis_progress.json</code>). The dashboard charts these runs as a timeline,
+  showing how the match rate, never-matched count, and phantom count change across sessions.
+</p>
+<p>
+  Use this chart to measure the impact of each synonym session. A run immediately after
+  applying synonyms should show a clear step up in the match rate.
+</p>
+
+<h3>Synonym Recommendations Sheet</h3>
+<p>
+  Inside the Gap Analysis report Excel file, the <strong>Synonym Recommendations</strong>
+  sheet suggests specific keywords from the semantic file that closely match never-matched
+  topics. This complements the Synonym Review Tool — where the Review Tool focuses on
+  keywords that nearly matched topics during the last run, the Synonym Recommendations
+  focuses on keywords that could help <em>never-matched</em> topics.
+</p>
+
+<h2>When to Open the Gap Analysis Dashboard</h2>
+<table>
+  <thead><tr><th>Situation</th><th>What to look at</th><th>Next action</th></tr></thead>
+  <tbody>
+    <tr><td>Start of an improvement session</td><td>Match rate ring, Never-Matched count</td><td>Understand current state before opening Synonym Review Tool</td></tr>
+    <tr><td>After applying a synonym batch</td><td>Match rate over time chart</td><td>Confirm the rate rose — if not, investigate Unmapped_Reason in match output</td></tr>
+    <tr><td>Match rate is stuck despite synonyms</td><td>Never-Matched topics list</td><td>Check if remaining unmapped articles have empty keywords or product filter issues (different fix needed)</td></tr>
+    <tr><td>Reporting to stakeholders</td><td>Full dashboard</td><td>Share as screenshot or export the underlying Excel for data</td></tr>
+    <tr><td>After new taxonomy version published</td><td>Phantom topics section</td><td>Zero phantoms = clean. Any phantoms = re-run matcher with new taxonomy first</td></tr>
+  </tbody>
+</table>
+
+
+<!-- ════════════════════════════ PART THREE — SYNONYM REVIEW TOOL ════════════════════════════ -->
+<div class="part-break"></div>
+<div class="part-header purple-header">
+  <div class="part-number">Part Three</div>
+  <div class="part-title">Synonym Review Tool</div>
+  <div class="part-sub">synonym_review.html — your action view</div>
+</div>
+
+<h2>What It Is</h2>
+<p>
+  Where the Gap Analysis Dashboard tells you <em>what</em> needs fixing, the Synonym Review
+  Tool is <em>how</em> you fix it. It reads the <strong>Keyword Recommendations</strong> sheet
+  from the most recent match output and presents every near-miss keyword in a reviewable list —
+  sorted by how close they were to matching and how many articles they affected.
+</p>
+<p>
+  You review each entry, verify it makes sense by opening the sample article URLs, approve
+  the ones that are genuine synonyms, and export them in a single click. The approved synonyms
+  are applied to the system and take effect on the very next match run.
+</p>
+
+<h2>What File to Load</h2>
+<div class="callout callout-purple">
+  <div class="callout-title">📂 File: taxonomy_match_*.xlsx — the match output</div>
+  <p><strong>Load the file produced by the most recent Taxonomy Mapper run</strong> — for example
+  <code>taxonomy_match_BE_19thFeb_BE.xlsx</code> (BE) or <code>taxonomy_match_NL_*.xlsx</code> (NL) or <code>taxonomy_match_SE_*.xlsx</code> (SE).</p>
+  <p>It must contain a <strong>Keyword Recommendations</strong> sheet. This sheet is included
+  automatically in every match run — no extra steps required.</p>
+  <p style="margin-top:6px;color:var(--muted);font-size:8.5pt">Not the Gap Analysis report. Not the semantic input file. The match output.</p>
+</div>
+
+<h2>The Full Workflow</h2>
+
+<div class="workflow">
+  <div class="wf-step">
+    <div class="wf-icon teal">▶</div>
+    <div class="wf-label">Run Matcher</div>
+    <div class="wf-sub">GUI or CLI</div>
+  </div>
+  <div class="wf-step">
+    <div class="wf-icon">🌐</div>
+    <div class="wf-label">Open Tool</div>
+    <div class="wf-sub">Double-click HTML</div>
+  </div>
+  <div class="wf-step">
+    <div class="wf-icon">📂</div>
+    <div class="wf-label">Load Match File</div>
+    <div class="wf-sub">Drop or browse</div>
+  </div>
+  <div class="wf-step">
+    <div class="wf-icon">✔</div>
+    <div class="wf-label">Review &amp; Select</div>
+    <div class="wf-sub">HIGH items first</div>
+  </div>
+  <div class="wf-step">
+    <div class="wf-icon">📥</div>
+    <div class="wf-label">Export Patch</div>
+    <div class="wf-sub">JSON downloads</div>
+  </div>
+  <div class="wf-step">
+    <div class="wf-icon green">⚙</div>
+    <div class="wf-label">Apply &amp; Re-run</div>
+    <div class="wf-sub">One command</div>
+  </div>
+</div>
+
+<h2>Understanding Priorities</h2>
+<p>
+  Every near-miss keyword is assigned a priority based on how close it was to the threshold
+  and how many articles it affected. Priorities are calculated relative to your match
+  threshold (default 80%), so they shift automatically if the threshold changes.
+</p>
+
+<table>
+  <thead><tr><th width="14%">Priority</th><th width="28%">Criteria</th><th>What it means in practice</th><th width="22%">Typical action</th></tr></thead>
+  <tbody>
+    <tr><td><strong style="color:#b71c1c">HIGH</strong></td><td>Score ≥ 75% AND 3+ articles</td><td>This keyword is very close to a category name and appears frequently. One approval unlocks multiple articles.</td><td>Approve unless URLs show it is navigation noise</td></tr>
+    <tr><td><strong style="color:#e65100">MEDIUM</strong></td><td>Score ≥ 65% AND 2+ articles, OR product-filtered, OR 5+ articles with no close match</td><td>Worth reviewing — either a reasonable synonym candidate or a sign of a product mapping issue.</td><td>Check the URLs and the Action column before deciding</td></tr>
+    <tr><td><strong style="color:#f57f17">LOW</strong></td><td>Score ≥ 50%</td><td>A speculative match. Rarely worth approving unless you recognise the term.</td><td>Ignore unless targeting a specific niche topic</td></tr>
+    <tr><td><em>NOISE</em></td><td>Everything else</td><td>Generic stopwords, single characters, UI chrome. Already filtered — never shown.</td><td>No action needed</td></tr>
+  </tbody>
+</table>
+
+<h2>Step-by-Step Guide</h2>
+<div class="steps">
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <div class="step-title">Open the tool</div>
+      <div class="step-body">Double-click <code>synonym_review.html</code> in the project folder. Opens in your browser — no login, no installation.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <div class="step-title">Drop the match file onto the landing screen</div>
+      <div class="step-body">Drag <code>taxonomy_match_BE_*.xlsx</code> onto the drop zone. The tool validates that it contains a Keyword Recommendations sheet and tells you immediately if you have loaded the wrong file.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <div class="step-title">Set your filters — work one product at a time</div>
+      <div class="step-body">
+        Click the <strong>HIGH</strong> priority pill. Use the <strong>Product dropdown</strong> to focus on one product. Tick <strong>New synonyms only</strong> to hide keywords already registered — this keeps the list clean and focused.
+      </div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-content">
+      <div class="step-title">Review each item — open the URL expander</div>
+      <div class="step-body">Click the blue URL count button on any row to expand a list of sample articles. Open one or two and ask: <em>Is this article genuinely about the suggested category?</em> Use the decision tree on the next page to guide your answer.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-content">
+      <div class="step-title">Select your approvals</div>
+      <div class="step-body">Tick the checkbox on each row you approve. Use <strong>Select All HIGH</strong> as a starting point, then untick any you want to reject. The footer shows the running count of selected items.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">6</div>
+    <div class="step-content">
+      <div class="step-title">Export Approved Synonyms</div>
+      <div class="step-body">Click the green <strong>Export Approved Synonyms (N)</strong> button. A file named <code>synonym_patch_BE_2026-02-19.json</code> downloads to your browser's downloads folder.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">7</div>
+    <div class="step-content">
+      <div class="step-title">Apply the patch</div>
+      <div class="step-body">
+        Open a command prompt in the project folder and run:<br>
+        <code>python apply_synonym_patch.py -i synonym_patch_BE_2026-02-19.json</code><br>
+        <code>python apply_synonym_patch.py -i synonym_patch_NL_2026-02-19.json</code>&nbsp;&nbsp;<em>(NL)</em><br>
+        <code>python apply_synonym_patch.py -i synonym_patch_SE_2026-02-19.json</code>&nbsp;&nbsp;<em>(SE)</em><br><br>
+        The country is auto-detected from the filename. To preview without making any changes: add <code>--dry-run</code><br>
+        A timestamped backup of the synonyms file is created automatically before any change.
+      </div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">8</div>
+    <div class="step-content">
+      <div class="step-title">Re-run the matcher and regenerate the Gap Analysis</div>
+      <div class="step-body">
+        Run the taxonomy matcher for the same country via the GUI, or CLI:<br>
+        <code>python taxonomy_matcher.py -c BE -t 80</code>&nbsp;&nbsp;<em>(Belgium)</em><br>
+        <code>python taxonomy_matcher.py -c NL -t 80</code>&nbsp;&nbsp;<em>(Netherlands)</em><br>
+        <code>python taxonomy_matcher.py -c SE -t 80</code>&nbsp;&nbsp;<em>(Sweden)</em><br><br>
+        Then regenerate the Gap Analysis report and open the dashboard to see the new match rate recorded in the progress chart.
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>Decision Tree — Should I Approve This Keyword?</h2>
+
+<div class="dt-wrap">
+  <div class="dt-title">Apply to every HIGH and MEDIUM keyword before ticking the checkbox</div>
+  <div class="dt-body">
+    <div class="dt-node dt-start">Keyword shown with a suggested category</div>
+    <div class="dt-arrow-down">↓</div>
+    <div class="dt-node dt-question">Open 1–2 sample URLs. Are the articles genuinely about the suggested category?</div>
+    <div class="dt-branches">
+      <div class="dt-branch">
+        <div class="dt-branch-label lbl-yes">YES</div>
+        <div class="dt-arrow-down">↓</div>
+        <div class="dt-node dt-question">Is the keyword specific?<br><small>(not a single generic word like "een", "het", "beheer")</small></div>
+        <div class="dt-branches" style="max-width:310px;margin:0 auto">
+          <div class="dt-branch">
+            <div class="dt-branch-label lbl-yes">YES</div>
+            <div class="dt-arrow-down">↓</div>
+            <div class="dt-outcome outcome-approve">✅ Approve</div>
+          </div>
+          <div class="dt-branch">
+            <div class="dt-branch-label lbl-no">NO</div>
+            <div class="dt-arrow-down">↓</div>
+            <div class="dt-outcome outcome-reject">❌ Reject<br><span style="font-size:7.5pt;font-weight:400">Too broad — may match wrong articles</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="dt-branch">
+        <div class="dt-branch-label lbl-no">NO</div>
+        <div class="dt-arrow-down">↓</div>
+        <div class="dt-node dt-question">Is this a navigation page or UI phrase?<br><small>("Alle artikelen", "artikel lees", "klik hier")</small></div>
+        <div class="dt-branches" style="max-width:310px;margin:0 auto">
+          <div class="dt-branch">
+            <div class="dt-branch-label lbl-yes">YES</div>
+            <div class="dt-arrow-down">↓</div>
+            <div class="dt-outcome outcome-reject">❌ Reject<br><span style="font-size:7.5pt;font-weight:400">UI chrome — not content</span></div>
+          </div>
+          <div class="dt-branch">
+            <div class="dt-branch-label lbl-no">NO</div>
+            <div class="dt-arrow-down">↓</div>
+            <div class="dt-outcome outcome-reject">❌ Reject<br><span style="font-size:7.5pt;font-weight:400">URLs and category don't align</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>Decision Tree — Why Is the Match Rate Still Low?</h2>
+
+<div class="dt-wrap">
+  <div class="dt-title">Use when match rate is stuck — filter Domain = UNMAPPED in the match output, check Unmapped_Reason</div>
+  <div class="dt-body">
+    <div class="dt-node dt-start">Match rate is not improving despite synonym sessions</div>
+    <div class="dt-arrow-down">↓</div>
+    <div class="dt-branches" style="align-items:flex-start">
+      <div class="dt-branch" style="max-width:200px">
+        <div style="text-align:center;font-weight:700;font-size:8pt;color:var(--navy);margin-bottom:6px;background:var(--pale);padding:5px 8px;border-radius:5px;border:1px solid var(--border)">"No matches above threshold"</div>
+        <div class="dt-arrow-down">↓</div>
+        <div class="dt-outcome outcome-approve" style="text-align:left;padding:8px 10px">
+          <strong>✅ Synonym tool helps here</strong><br>
+          <span style="font-size:7.5pt;font-weight:400">Keywords exist but score &lt;80%. Approve HIGH synonyms — they bridge the gap.</span>
+        </div>
+      </div>
+      <div class="dt-branch" style="max-width:200px">
+        <div style="text-align:center;font-weight:700;font-size:8pt;color:var(--navy);margin-bottom:6px;background:var(--pale);padding:5px 8px;border-radius:5px;border:1px solid var(--border)">"Product filter excluded matches"</div>
+        <div class="dt-arrow-down">↓</div>
+        <div class="dt-outcome outcome-warn" style="text-align:left;padding:8px 10px">
+          <strong>⚠ Different fix needed</strong><br>
+          <span style="font-size:7.5pt;font-weight:400">Product assigned to the article doesn't match the taxonomy. Fix: update product mapping or article categories.</span>
+        </div>
+      </div>
+      <div class="dt-branch" style="max-width:200px">
+        <div style="text-align:center;font-weight:700;font-size:8pt;color:var(--navy);margin-bottom:6px;background:var(--pale);padding:5px 8px;border-radius:5px;border:1px solid var(--border)">"No keywords extracted"</div>
+        <div class="dt-arrow-down">↓</div>
+        <div class="dt-outcome outcome-warn" style="text-align:left;padding:8px 10px">
+          <strong>⚠ Different fix needed</strong><br>
+          <span style="font-size:7.5pt;font-weight:400">Article has no keyword columns populated. Fix: re-extract keywords using the Extract Keywords tool.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>Approve vs Reject — Quick Reference</h2>
+<div class="ar-grid">
+  <div class="ar-box ar-approve">
+    <div class="ar-title">✅ Approve these</div>
+    <ul class="ar-list">
+      <li>A shorter form of the category name (<em>"btw aangifte"</em> for <em>BTW aangifte</em>)</li>
+      <li>A longer phrase clearly meaning the same thing (<em>"jaarrekening opmaken"</em>)</li>
+      <li>A product-specific prefix + topic (<em>"adsolut fiscaal dossier"</em>)</li>
+      <li>A consistent abbreviation (<em>"coda import"</em> for <em>CODA bestanden</em>)</li>
+      <li>2+ sample URLs clearly about the suggested category</li>
+    </ul>
+  </div>
+  <div class="ar-box ar-reject">
+    <div class="ar-title">❌ Reject these</div>
+    <ul class="ar-list">
+      <li>UI phrases (<em>"artikel lees"</em>, <em>"raadpleeg dit artikel"</em>, <em>"klik hier"</em>)</li>
+      <li>Navigation phrases (<em>"alle artikelen"</em>, <em>"een overzicht van"</em>)</li>
+      <li>Brand / footer text (<em>"wolters kluwer"</em>, <em>"kluwer taa software"</em>)</li>
+      <li>Single generic words (<em>"beheer"</em>, <em>"aanmaken"</em>, <em>"instelling"</em>)</li>
+      <li>Frequency 1–2 · or URLs don't relate to the category</li>
+    </ul>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════ PART FOUR — THE LOOP ════════════════════════════ -->
+<div class="part-break"></div>
+<div class="part-header">
+  <div class="part-number">Part Four</div>
+  <div class="part-title">The Improvement Loop</div>
+  <div class="part-sub">How the two tools work together over time</div>
+</div>
+
+<h2>A Typical Improvement Session</h2>
+<div class="steps">
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <div class="step-title">Open Gap Analysis Dashboard — understand where you are</div>
+      <div class="step-body">Check the current match rate, the never-matched topic count, and the progress chart. Identify which products have the most never-matched topics — these are your focus areas for today's session.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <div class="step-title">Open Synonym Review Tool — work through HIGH items by product</div>
+      <div class="step-body">Load the most recent match output. Filter to HIGH priority. Use the Product dropdown to work through one product at a time. Verify URLs for each item. Approve genuine synonyms, reject UI chrome and navigation phrases.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <div class="step-title">Export and apply the patch</div>
+      <div class="step-body">Export your approved synonyms. Run <code>apply_synonym_patch.py</code>. The synonyms are live immediately — no restart required.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-content">
+      <div class="step-title">Re-run the matcher and regenerate the Gap Analysis</div>
+      <div class="step-body">Run the taxonomy matcher for the same country. Then regenerate the Gap Analysis report. The new match rate appears in the progress chart — confirming the impact of this session's work.</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-content">
+      <div class="step-title">Repeat until 80%</div>
+      <div class="step-body">Each iteration surfaces new near-misses at a slightly higher score band. The HIGH items become fewer per session as coverage improves. Three to four sessions typically moves a country from minimal synonyms to 80% match rate.</div>
+    </div>
+  </div>
+</div>
+
+<h2>Expected Progress Per Iteration</h2>
+<p>Projections shown for Belgium (current baseline 58.4%) and for a new country starting from scratch.</p>
+<table>
+  <thead><tr><th>Iteration</th><th>HIGH items available</th><th>Expected gain</th><th>BE cumulative (from 58%)</th><th>New country (from ~25%)</th></tr></thead>
+  <tbody>
+    <tr><td>Round 1</td><td>40–80 items</td><td>+10–15%</td><td>~68–73%</td><td>~35–40%</td></tr>
+    <tr><td>Round 2</td><td>15–30 items</td><td>+7–10%</td><td>~75–83%</td><td>~45–55%</td></tr>
+    <tr class="tbl-target"><td>Round 3</td><td>5–15 items</td><td>+3–7%</td><td>Target reached</td><td>~55–65%</td></tr>
+    <tr><td>Round 4–5</td><td>0–10 items</td><td>+2–5%</td><td>&gt; 80% sustained</td><td>Target reached</td></tr>
+    <tr><td>Maintenance</td><td>0–5 (new content only)</td><td>Steady state</td><td>&gt; 80% sustained</td><td>&gt; 80% sustained</td></tr>
+  </tbody>
+</table>
+
+<h2>When You Have Run Out of HIGH Items</h2>
+<p>If no HIGH items remain but the match rate is still below 80%:</p>
+<ol>
+  <li>Open the Gap Analysis Dashboard — check the <strong>Never-Matched Topics</strong> list. Topics that never matched any article often need synonyms that weren't in the content at all.</li>
+  <li>Use the <strong>Synonym Assistant</strong> tab in the GUI (load the semantic file + taxonomy, run Combined analysis) — it suggests keywords from URL paths for never-matched topics, which the Synonym Review Tool would not surface.</li>
+  <li>Check the <strong>Unmapped_Reason</strong> column for remaining unmapped articles — if the majority say "Product filter excluded", the remaining block is in product assignment rather than synonyms.</li>
+</ol>
+
+<h2>Common Questions</h2>
+<div class="faq-item">
+  <div class="faq-q">I applied synonyms but the match rate didn't change. Why?</div>
+  <div class="faq-a">The most common reason is that the remaining unmapped articles have a different root cause — product filtering or missing keywords — rather than near-miss scoring. Filter Domain = UNMAPPED in the match output and read the Unmapped_Reason column. See Decision Tree B in Part Three.</div>
+</div>
+<div class="faq-item">
+  <div class="faq-q">I approved something by mistake. Can I undo it?</div>
+  <div class="faq-a">Yes. Every time <code>apply_synonym_patch.py</code> runs it creates a timestamped backup automatically. Rename <code>synonyms_backup_YYYYMMDD_HHMMSS.json</code> back to <code>synonyms.json</code> in the <code>countries/BE/</code> folder to restore the previous state.</div>
+</div>
+<div class="faq-item">
+  <div class="faq-q">A keyword I approved is now appearing on the wrong articles.</div>
+  <div class="faq-a">The keyword was too generic and matches multiple categories. Open <code>countries/BE/synonyms.json</code>, find the topic, remove the keyword from its list, and re-run the matcher.</div>
+</div>
+<div class="faq-item">
+  <div class="faq-q">There are 1,864 MEDIUM items. Do I need to review all of them?</div>
+  <div class="faq-a">No. Focus on HIGH first — they give the biggest return per item reviewed. For MEDIUM, filter the Freq column to 5 or above and work through those. LOW items can generally be ignored unless you are targeting a very specific niche topic.</div>
+</div>
+<div class="faq-item">
+  <div class="faq-q">When should I use the Gap Analysis Synonym Recommendations versus the Synonym Review Tool?</div>
+  <div class="faq-a">The Synonym Review Tool surfaces near-misses from the most recent match run — keywords that nearly matched a topic but fell short. The Gap Analysis Synonym Recommendations focus specifically on topics that have <em>never</em> matched at all and suggests keywords from the full semantic file that could unlock them. Both are complementary — use the Review Tool first (faster, higher impact), then the Gap Analysis recommendations for topics that still have zero matches.</div>
+</div>
+
+<h2>Quick Reference — Both Tools</h2>
+<div class="summary-card">
+  <div class="summary-card-header">📊 Gap Analysis Dashboard — gap_analysis_dashboard.html</div>
+  <div class="summary-grid">
+    <div class="summary-item"><div class="si-label">File to load</div><div class="si-val"><code>TAXONOMY_GAP_ANALYSIS_REPORT*.xlsx</code></div></div>
+    <div class="summary-item"><div class="si-label">Generate from</div><div class="si-val">GUI → Reports tab → Taxonomy Gap Analysis Report</div></div>
+    <div class="summary-item"><div class="si-label">Key metrics</div><div class="si-val">Match rate · Never-matched topics · Phantoms · Progress over time</div></div>
+    <div class="summary-item"><div class="si-label">When to open</div><div class="si-val">Start of every session · After applying synonyms to measure impact</div></div>
+  </div>
+</div>
+
+<div class="summary-card" style="margin-top:12px">
+  <div class="summary-card-header">🔍 Synonym Review Tool — synonym_review.html</div>
+  <div class="summary-grid">
+    <div class="summary-item"><div class="si-label">File to load</div><div class="si-val"><code>taxonomy_match_*.xlsx</code> — the match output</div></div>
+    <div class="summary-item"><div class="si-label">Start with</div><div class="si-val">HIGH priority · one Product at a time · New synonyms only</div></div>
+    <div class="summary-item"><div class="si-label">Before approving</div><div class="si-val">Open URLs · confirm 2–3 articles are about the suggested category</div></div>
+    <div class="summary-item"><div class="si-label">Export downloads</div><div class="si-val"><code>synonym_patch_{country}_{date}.json</code></div></div>
+    <div class="summary-item"><div class="si-label">Apply with</div><div class="si-val"><code>python apply_synonym_patch.py -i &lt;filename&gt;</code></div></div>
+    <div class="summary-item"><div class="si-label">Undo with</div><div class="si-val">Restore <code>synonyms_backup_*.json</code> in <code>countries/{CODE}/</code></div></div>
+    <div class="summary-item"><div class="si-label">Impact per session</div><div class="si-val">+5% to +15% match rate (HIGH items)</div></div>
+    <div class="summary-item"><div class="si-label">Time per session</div><div class="si-val">~30 min review · 3 min to apply</div></div>
+  </div>
+</div>
+
+<hr>
+<p style="text-align:center;font-size:8pt;color:var(--muted);margin-top:14px">
+  Taxonomy Mapper V3.25 &nbsp;·&nbsp; Wolters Kluwer Tax &amp; Accounting &nbsp;·&nbsp; Applies to: BE · NL · SE &nbsp;·&nbsp; February 2026
+</p>
+
+</div><!-- /.page-body -->
+</div><!-- /.page-wrap -->
+
+</body>
+</html>

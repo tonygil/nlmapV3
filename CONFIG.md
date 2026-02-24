@@ -1,4 +1,4 @@
-# Configuration Settings for NL Taxonomy Mapper V2
+﻿# Configuration Settings for Taxonomy Mapper V2
 
 ## File Paths
 # Modify these paths if your input files are in different locations

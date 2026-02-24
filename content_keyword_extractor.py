@@ -97,12 +97,43 @@ STOPWORDS = {
     'guidance', 'webpage', 'facilitates', 'creation', 'matching', 'codes', 'code'
 }
 
+# URL path navigation words — Salesforce/Wolters Kluwer community URL chrome.
+# Applied ONLY in extract_from_url(), not to content columns.
+URL_NAV_STOPWORDS = frozenset({
+    # Salesforce community path scaffolding
+    'artikelen',    # Dutch "articles" — nav label on BE/NL community sites
+    'nlcommunity',  # NL community path prefix
+    'customers',    # BE community path (/customers/s/article/...)
+    'lightning',    # Salesforce Lightning URL prefix
+    'knowledge',    # Salesforce Knowledge object type in Lightning URLs
+    # Wolters Kluwer domain fragments
+    'wktaaeu',
+    'taasupport',
+    'wolterskluwer',
+    'userdocs',
+    # Generic site navigation
+    'home', 'login', 'logout', 'search', 'sitemap',
+    'index', 'default', 'privacy', 'terms', 'contact',
+    'language', 'locale', 'lang',
+})
+
 # Noise phrase patterns - phrases starting with these are filtered out
 NOISE_PHRASE_STARTS = {
     'enabling', 'allowing', 'providing', 'ensuring', 'facilitating',
     'managing', 'creating', 'updating', 'configuring', 'displaying',
     'showing', 'accessing', 'visiting', 'starting', 'guidance on',
-    'effectively', 'automatically', 'properly', 'correctly'
+    'effectively', 'automatically', 'properly', 'correctly',
+    # Dutch Salesforce community UI chrome (v3.19 — Artikelen disambiguation)
+    # Every page on the BE/NL community site leaks these nav action phrases into
+    # content columns. Filtering here prevents ~614 near-miss recommendations per run.
+    'artikel vind', 'artikel lees', 'artikel legt', 'artikel leggen',
+    'alle artikelen', 'mijn artikelen', 'nieuw artikel', 'zoek artikel',
+    # "dit artikel *" variants — community UI says "this article explains/shows..."
+    # on every page, generating hundreds of near-misses (v3.24)
+    'dit artikel', 'raadpleeg', 'volg dit', 'legt uit hoe',
+    # Generic navigation/boilerplate Dutch phrases (v3.24)
+    'van artikelen', 'een overzicht van', 'biedt een overzicht',
+    'een medewerker aan', 'klik hier',
 }
 
 # Pre-compiled regex for separator splitting
@@ -130,7 +161,8 @@ class ContentKeywordExtractor:
                  crawl_urls: bool = False,
                  max_workers: int = 10,
                  request_timeout: int = 15,
-                 progress_callback=None):
+                 progress_callback=None,
+                 noise_phrases=None):
         """
         Initialize the keyword extractor.
 
@@ -143,6 +175,8 @@ class ContentKeywordExtractor:
             max_workers: Number of concurrent threads for URL fetching
             request_timeout: Timeout in seconds for each URL request
             progress_callback: Optional callback(current, total, message) for progress
+            noise_phrases: Optional list/set of noise phrase prefixes — overrides the
+                           module-level NOISE_PHRASE_STARTS when provided
         """
         self.taxonomy_file = taxonomy_file
         self.synonyms = synonyms or {}
@@ -152,6 +186,8 @@ class ContentKeywordExtractor:
         self.max_workers = max_workers
         self.request_timeout = request_timeout
         self.progress_callback = progress_callback
+        # Per-instance noise phrases (falls back to module-level constant if not supplied)
+        self._noise_phrase_starts = set(noise_phrases) if noise_phrases is not None else NOISE_PHRASE_STARTS
 
         # Crawling stats
         self.crawl_stats = {'success': 0, 'failed': 0, 'skipped': 0}
@@ -342,6 +378,9 @@ class ContentKeywordExtractor:
         # Split path by / to get segments
         segments = [s for s in path.split('/') if s]
 
+        # Combined stopword set for URL path extraction (content stopwords + nav words)
+        url_stopwords = STOPWORDS | URL_NAV_STOPWORDS
+
         keywords = []
         seen = set()
 
@@ -381,7 +420,7 @@ class ContentKeywordExtractor:
                 joined_raw = segment.replace('_', '').replace('-', '').replace('+', '')
                 joined = _LEADING_DIGITS_PATTERN.sub('', joined_raw).lower().strip()
                 if (len(joined) >= self.min_word_length and
-                    joined not in STOPWORDS and
+                    joined not in url_stopwords and
                     not joined.isdigit() and
                     joined not in seen):
                     # Also try CamelCase splitting on the joined version
@@ -391,7 +430,7 @@ class ContentKeywordExtractor:
                         # Use the CamelCase-split version instead of the blob
                         camel_words = [p.lower() for p in camel_parts
                                        if len(p) >= self.min_word_length
-                                       and p.lower() not in STOPWORDS
+                                       and p.lower() not in url_stopwords
                                        and not p.isdigit()]
                         if 2 <= len(camel_words) <= 5:
                             phrase = ' '.join(camel_words)
@@ -412,7 +451,7 @@ class ContentKeywordExtractor:
             for word in words:
                 word_clean = word.lower().strip()
                 if (len(word_clean) >= self.min_word_length and
-                    word_clean not in STOPWORDS and
+                    word_clean not in url_stopwords and
                     not word_clean.isdigit()):
                     meaningful_words.append(word_clean)
 
@@ -437,13 +476,13 @@ class ContentKeywordExtractor:
         words = phrase_lower.split()
 
         # Check if phrase starts with a noise word
-        for noise_start in NOISE_PHRASE_STARTS:
+        for noise_start in self._noise_phrase_starts:
             if phrase_lower.startswith(noise_start):
                 return True
 
         # Check if any word in the phrase is a noise start word (e.g., "enabling" in middle)
         for word in words:
-            if word in NOISE_PHRASE_STARTS:
+            if word in self._noise_phrase_starts:
                 return True
 
         # Check if phrase contains too many stopwords

@@ -1,4 +1,4 @@
-# NL Taxonomy Mapper V2 🗂️
+﻿# Taxonomy Mapper V2 🗂️
 
 ## Project Overview
 Modern application for mapping URLs from semantic_carriers_list.xlsx to topics in NL Taxonomy V2.xlsx using fuzzy string matching.

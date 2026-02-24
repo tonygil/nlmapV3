@@ -1,0 +1,1146 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campaign Assistant — User Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          #f0f4f8;
+    --bg-raised:   #ffffff;
+    --bg-surface:  #f6f8fa;
+    --border:      rgba(0,0,0,.07);
+    --border-md:   rgba(0,0,0,.11);
+    --text:        #111827;
+    --text-2:      #5a6a7e;
+    --text-3:      #9daab8;
+    --font:        'Plus Jakarta Sans', system-ui, sans-serif;
+    --mono:        'JetBrains Mono', monospace;
+    --r:           6px;
+    --r-lg:        12px;
+    --blue:        #1d4ed8; --blue-bg:    #eff6ff;
+    --green:       #047857; --green-bg:   #ecfdf5;
+    --orange:      #b45309; --orange-bg:  #fffbeb;
+    --purple:      #6d28d9; --purple-bg:  #f5f3ff;
+    --red:         #dc2626; --red-bg:     #fef2f2;
+    --gray:        #4b5563; --gray-bg:    #f9fafb;
+    --teal:        #0f766e; --teal-bg:    #f0fdfa;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-size: 15px;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border-md);
+    padding: 18px 40px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,.05);
+  }
+  header .logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, #1d4ed8 0%, #10b981 100%);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800; font-size: 13px; flex-shrink: 0;
+    letter-spacing: -.5px;
+  }
+  header h1 { font-size: 17px; font-weight: 700; }
+  header .subtitle { font-size: 13px; color: var(--text-2); font-weight: 400; }
+  header nav { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; }
+  header nav a {
+    font-size: 13px; font-weight: 500; color: var(--text-2);
+    text-decoration: none; padding: 5px 11px; border-radius: var(--r);
+    transition: background .15s, color .15s;
+  }
+  header nav a:hover { background: var(--bg-surface); color: var(--text); }
+
+  /* ── LAYOUT ── */
+  .page { max-width: 980px; margin: 0 auto; padding: 36px 24px 80px; }
+
+  /* ── HERO ── */
+  .hero {
+    background: linear-gradient(135deg, #1e3a8a 0%, #065f46 100%);
+    border-radius: 16px;
+    padding: 40px 40px 36px;
+    color: #fff;
+    margin-bottom: 40px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 280px; height: 280px;
+    border-radius: 50%;
+    background: rgba(255,255,255,.04);
+  }
+  .hero-badge {
+    display: inline-block;
+    font-size: 11px; font-weight: 700; letter-spacing: .06em;
+    background: rgba(255,255,255,.15);
+    padding: 3px 10px; border-radius: 20px;
+    margin-bottom: 14px;
+    text-transform: uppercase;
+  }
+  .hero h2 { font-size: 28px; font-weight: 800; margin-bottom: 10px; line-height: 1.2; }
+  .hero p  { font-size: 15px; color: rgba(255,255,255,.75); max-width: 560px; margin-bottom: 0; }
+  .hero-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+  .hero-tag {
+    font-size: 12px; font-weight: 600;
+    background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.2);
+    padding: 4px 12px; border-radius: 20px;
+    color: rgba(255,255,255,.9);
+  }
+
+  /* ── SECTION HEADING ── */
+  .section-header {
+    display: flex; align-items: center; gap: 12px;
+    margin: 48px 0 20px;
+  }
+  .section-header:first-child { margin-top: 0; }
+  .section-num {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--blue); color: #fff;
+    font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .section-header h2 { font-size: 22px; font-weight: 700; }
+  .section-header p { font-size: 14px; color: var(--text-2); margin-top: 2px; }
+
+  h3 { font-size: 16px; font-weight: 700; margin: 24px 0 10px; }
+  h4 { font-size: 14px; font-weight: 700; margin: 16px 0 6px; }
+  p  { margin-bottom: 12px; color: var(--text-2); }
+  p:last-child { margin-bottom: 0; }
+  strong { color: var(--text); }
+  ul, ol { padding-left: 20px; margin-bottom: 12px; color: var(--text-2); }
+  li { margin-bottom: 5px; }
+  li:last-child { margin-bottom: 0; }
+
+  /* ── CARD ── */
+  .card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-md);
+    border-radius: var(--r-lg);
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 14px; font-weight: 700; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-title .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  /* ── PILL / BADGE ── */
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 600;
+    padding: 3px 10px; border-radius: 20px;
+    border: 1px solid transparent;
+  }
+  .pill-blue   { color: var(--blue);   background: var(--blue-bg);   border-color: rgba(29,78,216,.15); }
+  .pill-green  { color: var(--green);  background: var(--green-bg);  border-color: rgba(4,120,87,.15); }
+  .pill-orange { color: var(--orange); background: var(--orange-bg); border-color: rgba(180,83,9,.15); }
+  .pill-purple { color: var(--purple); background: var(--purple-bg); border-color: rgba(109,40,217,.15); }
+  .pill-red    { color: var(--red);    background: var(--red-bg);    border-color: rgba(220,38,38,.15); }
+  .pill-gray   { color: var(--gray);   background: var(--gray-bg);   border-color: rgba(75,85,99,.12); }
+
+  /* ── PROCESS FLOW ── */
+  .flow { display: flex; flex-direction: column; gap: 0; margin: 8px 0 4px; }
+  .flow-step { display: flex; align-items: stretch; gap: 0; width: 100%; }
+  .flow-connector { display: flex; flex-direction: column; align-items: center; width: 40px; flex-shrink: 0; }
+  .flow-connector .line { width: 2px; flex: 1; background: var(--border-md); min-height: 12px; }
+  .flow-connector .arrow { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--border-md); }
+  .flow-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--blue); background: var(--bg-raised); margin: 12px 0; flex-shrink: 0; align-self: center; }
+  .flow-dot.green { border-color: var(--green); }
+  .flow-dot.orange { border-color: var(--orange); }
+  .flow-dot.purple { border-color: var(--purple); }
+  .flow-body { flex: 1; padding: 10px 0 10px 12px; min-height: 48px; display: flex; flex-direction: column; justify-content: center; }
+  .flow-label { font-weight: 700; font-size: 14px; color: var(--text); }
+  .flow-sub { font-size: 12px; color: var(--text-2); margin-top: 1px; }
+
+  /* ── UI MOCKUP ── */
+  .ui-mock {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-md);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    margin: 12px 0 16px;
+    font-size: 13px;
+  }
+  .ui-mock-bar {
+    background: #f1f5f9;
+    border-bottom: 1px solid var(--border-md);
+    padding: 8px 16px;
+    font-size: 12px; font-weight: 600; color: var(--text-2);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .ui-mock-bar .dot-row { display: flex; gap: 5px; }
+  .ui-mock-bar .dot-row span { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .ui-mock-inner { padding: 16px 20px; }
+  .ui-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .ui-label { font-size: 12px; font-weight: 600; color: var(--text-2); min-width: 90px; }
+  .ui-input {
+    flex: 1; background: #fff; border: 1px solid var(--border-md);
+    border-radius: 4px; padding: 5px 10px; font-size: 12px;
+    color: var(--text-2); font-family: var(--mono);
+    max-width: 360px;
+  }
+  .ui-btn {
+    font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 4px;
+    display: inline-block; white-space: nowrap;
+  }
+  .ui-btn-primary  { background: #2563eb; color: #fff; }
+  .ui-btn-secondary { background: #10b981; color: #fff; }
+  .ui-btn-gray     { background: #64748b; color: #fff; }
+  .ui-btn-dim      { background: #94a3b8; color: #fff; }
+  .ui-select {
+    background: #fff; border: 1px solid var(--border-md);
+    border-radius: 4px; padding: 5px 10px; font-size: 12px; color: var(--text-2);
+    min-width: 80px;
+  }
+
+  /* ── SUGGESTION CARD MOCK ── */
+  .sug-card {
+    border: 1px solid var(--border-md);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 10px;
+    display: flex;
+  }
+  .sug-stripe { width: 5px; flex-shrink: 0; }
+  .sug-body { padding: 12px 16px; flex: 1; }
+  .sug-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .sug-badge {
+    font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 3px;
+    color: #fff; letter-spacing: .04em;
+  }
+  .sug-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .sug-gain  { font-size: 12px; color: var(--green); font-weight: 600; }
+  .sug-desc  { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+  .sug-actions { display: flex; gap: 6px; align-items: center; }
+  .sug-combo { padding: 4px 8px; border: 1px solid var(--border-md); border-radius: 4px; font-size: 11px; color: var(--text-2); background: #fff; }
+
+  /* ── STATS STRIP MOCK ── */
+  .stats-strip {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-md);
+    border-radius: var(--r-lg);
+    padding: 16px 20px;
+    margin: 12px 0 16px;
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .stat-block .stat-value {
+    font-size: 26px; font-weight: 800; line-height: 1;
+    margin-bottom: 3px;
+  }
+  .stat-block .stat-label { font-size: 11px; color: var(--text-2); font-weight: 500; }
+  .stat-blue   { color: var(--blue); }
+  .stat-green  { color: var(--green); }
+  .stat-red    { color: var(--red); }
+  .stat-bar { font-family: var(--mono); font-size: 11px; color: var(--blue); margin-top: 6px; }
+
+  /* ── STEP BOXES ── */
+  .steps { display: flex; flex-direction: column; gap: 12px; margin: 8px 0; }
+  .step {
+    display: flex; gap: 14px; align-items: flex-start;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-md);
+    border-radius: var(--r-lg);
+    padding: 14px 18px;
+  }
+  .step-num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--blue); color: #fff;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .step-num.green  { background: var(--green); }
+  .step-num.orange { background: var(--orange); }
+  .step-content .step-title { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
+  .step-content p { font-size: 13px; color: var(--text-2); margin-bottom: 0; }
+
+  /* ── NOTE / TIP / WARNING ── */
+  .note, .tip, .warn {
+    display: flex; gap: 12px; align-items: flex-start;
+    border-radius: var(--r-lg);
+    padding: 14px 16px;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .note  { background: var(--blue-bg);   border: 1px solid rgba(29,78,216,.15); }
+  .tip   { background: var(--green-bg);  border: 1px solid rgba(4,120,87,.15); }
+  .warn  { background: var(--orange-bg); border: 1px solid rgba(180,83,9,.15); }
+  .note-icon, .tip-icon, .warn-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .note-body, .tip-body, .warn-body { flex: 1; color: var(--text-2); }
+  .note-body strong, .tip-body strong, .warn-body strong { color: var(--text); }
+
+  /* ── TYPE LEGEND ── */
+  .type-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 12px 0;
+  }
+  @media (max-width: 640px) { .type-grid { grid-template-columns: 1fr; } }
+  .type-card {
+    border-radius: var(--r-lg);
+    border: 1px solid var(--border-md);
+    overflow: hidden;
+  }
+  .type-card-header {
+    padding: 10px 16px;
+    font-size: 12px; font-weight: 700; color: #fff;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .type-card-body {
+    padding: 12px 16px;
+    font-size: 13px; color: var(--text-2);
+  }
+  .type-card-body p { margin-bottom: 6px; font-size: 13px; }
+  .type-card-body ul { margin-bottom: 0; }
+
+  /* ── TABLE ── */
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 700;
+       text-transform: uppercase; letter-spacing: .05em; color: var(--text-2);
+       border-bottom: 2px solid var(--border-md); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-2);
+       vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td:first-child { font-weight: 600; color: var(--text); }
+  code {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--bg-surface); padding: 1px 6px; border-radius: 4px;
+    color: var(--purple);
+  }
+
+  /* ── FAQ ── */
+  .faq { margin: 8px 0; }
+  .faq-item {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-md);
+    border-radius: var(--r-lg);
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .faq-q {
+    padding: 14px 18px;
+    font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer;
+  }
+  .faq-q .q-badge {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--blue-bg); color: var(--blue);
+    font-size: 12px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .faq-a {
+    padding: 0 18px 14px 50px;
+    font-size: 13px; color: var(--text-2);
+  }
+  .faq-a p { margin-bottom: 6px; }
+  .faq-a p:last-child { margin-bottom: 0; }
+
+  /* ── KEYBOARD SHORTCUT ── */
+  kbd {
+    display: inline-block;
+    font-family: var(--mono); font-size: 11px;
+    background: var(--bg-surface); color: var(--text);
+    border: 1px solid var(--border-md); border-bottom-width: 2px;
+    border-radius: 3px; padding: 1px 6px;
+  }
+
+  /* ── DIVIDER ── */
+  .divider { height: 1px; background: var(--border-md); margin: 32px 0; }
+
+  /* ── SCREENSHOT CAPTION ── */
+  .caption {
+    font-size: 12px; color: var(--text-3); text-align: center;
+    margin-top: -8px; margin-bottom: 16px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CA</div>
+  <div>
+    <h1>Campaign Assistant</h1>
+    <div class="subtitle">Taxonomy Mapper V3 — User Guide</div>
+  </div>
+  <nav>
+    <a href="#overview">Overview</a>
+    <a href="#interface">Interface</a>
+    <a href="#suggestions">Suggestions</a>
+    <a href="#workflow">Workflow</a>
+    <a href="#applying">Applying Fixes</a>
+    <a href="#rerun">Re-run</a>
+    <a href="#faq">FAQ</a>
+  </nav>
+</header>
+
+<div class="page">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-badge">Campaign Assistant</div>
+    <h2>Diagnose unmapped URLs.<br>Apply fixes. See the impact.</h2>
+    <p>The Campaign Assistant analyses your match output file and shows you exactly what to fix — ranked by how many URLs each fix will unlock. Apply changes in one click, re-run the matcher, and watch your match rate climb.</p>
+    <div class="hero-tags">
+      <span class="hero-tag">Category Mapping fixes</span>
+      <span class="hero-tag">Synonym suggestions</span>
+      <span class="hero-tag">One-click apply</span>
+      <span class="hero-tag">Before/after delta</span>
+      <span class="hero-tag">Auto-backup</span>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────── SECTION 1 ─── -->
+  <div class="section-header" id="overview">
+    <div class="section-num">1</div>
+    <div>
+      <h2>What it does</h2>
+      <p>The improvement loop made automatic</p>
+    </div>
+  </div>
+
+  <p>After running the matcher you typically end up with a batch of unmapped URLs. To improve the match rate you need to figure out <em>why</em> each URL didn't match, decide on a fix (add a synonym? update category mapping?), apply it, and re-run. Without tooling this is slow and repetitive.</p>
+  <p>The Campaign Assistant automates the diagnosis step. It reads your match output file, looks at the <code>Unmapped_Reason</code> column, checks the <strong>Keyword Recommendations</strong> sheet, and groups the problems into ranked suggestions — biggest wins first.</p>
+
+  <div class="card">
+    <div class="card-title"><span class="dot" style="background:var(--blue)"></span>Three root causes, three fix types</div>
+    <div class="type-grid">
+      <div class="type-card">
+        <div class="type-card-header" style="background:#2563eb;">
+          <span>●</span> CATEGORY MAP
+        </div>
+        <div class="type-card-body">
+          <p>A Salesforce product code (e.g. <code>Adsolut_KMO_beheer</code>) is not in <code>category_mapping.json</code>. The matcher can't tell which taxonomy product it belongs to, so all those articles are excluded.</p>
+          <p><strong>Fix:</strong> map the Salesforce code to a taxonomy product.</p>
+        </div>
+      </div>
+      <div class="type-card">
+        <div class="type-card-header" style="background:#10b981;">
+          <span>●</span> SYNONYM
+        </div>
+        <div class="type-card-body">
+          <p>Keywords extracted from the article nearly matched a taxonomy topic but fell just below the fuzzy threshold. The topic and keyword are semantically linked but worded differently.</p>
+          <p><strong>Fix:</strong> add the keyword as a synonym for the topic.</p>
+        </div>
+      </div>
+      <div class="type-card">
+        <div class="type-card-header" style="background:#f59e0b;">
+          <span>●</span> DATA ISSUE
+        </div>
+        <div class="type-card-body">
+          <p>The article has no extractable keywords at all — Title, Summary, and Description columns are all empty. The matcher has nothing to work with.</p>
+          <p><strong>Fix:</strong> populate the content columns in the source file.</p>
+        </div>
+      </div>
+      <div class="type-card">
+        <div class="type-card-header" style="background:#8b5cf6;">
+          <span>●</span> NO MATCH
+        </div>
+        <div class="type-card-body">
+          <p>Keywords exist but no taxonomy topic reached the similarity threshold. This can mean the topic hasn't been covered by synonyms yet, or the threshold needs adjusting.</p>
+          <p><strong>Fix:</strong> add synonyms, or lower the threshold on the Setup tab.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <span class="note-icon">ℹ️</span>
+    <div class="note-body">
+      <strong>Estimated gain is not guaranteed.</strong> The number shown on each suggestion card is the count of currently-unmapped URLs affected by that fix. After re-running, the actual uplift may be slightly different because some URLs could still be blocked by another reason.
+    </div>
+  </div>
+
+
+  <!-- ─────────────────────────────── SECTION 2 ─── -->
+  <div class="section-header" id="interface">
+    <div class="section-num">2</div>
+    <div>
+      <h2>The interface</h2>
+      <p>A tour of every control on the tab</p>
+    </div>
+  </div>
+
+  <p>Click the <strong>Campaign Assistant</strong> tab in the main toolbar. The tab has four zones:</p>
+
+  <!-- Controls bar mockup -->
+  <div class="ui-mock">
+    <div class="ui-mock-bar">
+      <div class="dot-row"><span style="background:#ef4444"></span><span style="background:#f59e0b"></span><span style="background:#10b981"></span></div>
+      Campaign Assistant
+    </div>
+    <div class="ui-mock-inner">
+      <div class="ui-row">
+        <span class="ui-label">Match File:</span>
+        <span class="ui-input">C:\…\taxonomy_match_BE_20260223_1022.xlsx</span>
+        <span class="ui-btn ui-btn-primary">Browse</span>
+        <span class="ui-btn ui-btn-gray">Auto-fill</span>
+      </div>
+      <div class="ui-row">
+        <span class="ui-label">Country:</span>
+        <span class="ui-select">BE ▾</span>
+        &nbsp;&nbsp;
+        <span class="ui-label" style="min-width:50px">Target:</span>
+        <span class="ui-select" style="min-width:48px">80</span>
+        <span style="font-size:12px;color:var(--text-2);">%</span>
+        &nbsp;
+        <span class="ui-btn ui-btn-secondary" style="padding:6px 20px;font-size:12px;">  Analyse  </span>
+        &nbsp;
+        <span style="font-size:12px;color:var(--green);font-style:italic;">Analysis complete — 8 actionable suggestions</span>
+      </div>
+    </div>
+  </div>
+  <p class="caption">Controls bar — the only fields you need to fill in before clicking Analyse</p>
+
+  <h3>Controls bar fields</h3>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>What to enter</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Match File</td>
+        <td>The <code>taxonomy_match_*.xlsx</code> output from the last run</td>
+        <td>Must contain a <strong>Results</strong> sheet. If it also has a <strong>Keyword Recommendations</strong> sheet, synonym suggestions are generated automatically.</td>
+      </tr>
+      <tr>
+        <td>Browse</td>
+        <td>Opens a file picker</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>Auto-fill</td>
+        <td>Populates the match file from the last run in this session</td>
+        <td>Only works if you ran the matcher in the same session. After restarting the app, use Browse instead.</td>
+      </tr>
+      <tr>
+        <td>Country</td>
+        <td>Two-letter country code (BE, GB, NL, SE)</td>
+        <td>Determines which <code>synonyms.json</code> and <code>category_mapping.json</code> files are read and written when you apply a fix.</td>
+      </tr>
+      <tr>
+        <td>Target</td>
+        <td>Your goal match rate as a percentage (e.g. <code>80</code>)</td>
+        <td>Shown in the stats strip. The "Needed for X% target" counter uses this value.</td>
+      </tr>
+      <tr>
+        <td>Analyse</td>
+        <td>Runs the analysis</td>
+        <td>Runs in the background. The button turns grey while processing; the status label shows progress.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Stats strip</h3>
+  <p>Appears below the controls bar after the first analysis. Shows your current position at a glance.</p>
+
+  <div class="stats-strip">
+    <div class="stat-block">
+      <div class="stat-value stat-blue">68.1%</div>
+      <div class="stat-label">Match rate</div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-value">1,210</div>
+      <div class="stat-label">URLs mapped</div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-value">1,777</div>
+      <div class="stat-label">Total URLs</div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-value stat-red">+212</div>
+      <div class="stat-label">Needed for 80% target</div>
+    </div>
+  </div>
+  <div class="stat-bar">
+    <span style="font-family:var(--mono);font-size:12px;color:var(--blue);">[|||||||||||||.........]  68.1% of 80% target</span>
+  </div>
+  <br>
+
+  <div class="note">
+    <span class="note-icon">ℹ️</span>
+    <div class="note-body">
+      <strong>Match rate is calculated per unique URL</strong>, not per row. A URL is counted as "mapped" if it has at least one matched segment in the output. This matches the same methodology used by the Gap Analysis report.
+    </div>
+  </div>
+
+  <h3>Suggestion cards</h3>
+  <p>The scrollable area below the stats strip lists every suggestion, sorted by estimated URL gain (largest first). Category mapping fixes appear before synonym suggestions.</p>
+  <p>Each card has a <strong>coloured left stripe</strong> indicating the fix type, a <strong>badge</strong>, the suggestion title, and an estimated gain. Actionable cards (CATEGORY MAP and SYNONYM) have buttons. Informational cards (DATA ISSUE and NO MATCH) have no buttons — they are awareness notices.</p>
+
+  <h3>Re-run bar</h3>
+  <p>A bar at the bottom of the tab with a <strong>Re-run Matcher</strong> button. After applying fixes, click this to trigger a new matcher run and automatically re-analyse the result.</p>
+
+
+  <!-- ─────────────────────────────── SECTION 3 ─── -->
+  <div class="section-header" id="suggestions">
+    <div class="section-num">3</div>
+    <div>
+      <h2>Suggestion types in detail</h2>
+      <p>What each card is telling you and what to do about it</p>
+    </div>
+  </div>
+
+  <!-- CATEGORY MAP -->
+  <h3 style="color:#2563eb">CATEGORY MAP suggestions</h3>
+  <p>Generated when the Results sheet contains rows with <code>Unmapped_Reason</code> = <em>"Product filter excluded matches (semantic Product: X)"</em> and the Salesforce product code <strong>X</strong> is not yet in <code>category_mapping.json</code>.</p>
+
+  <div class="sug-card">
+    <div class="sug-stripe" style="background:#2563eb"></div>
+    <div class="sug-body">
+      <div class="sug-header">
+        <span class="sug-badge" style="background:#2563eb">CATEGORY MAP</span>
+        <span class="sug-title">#1  Map Salesforce product "Adsolut_KMO_beheer"</span>
+        <span class="sug-gain">Est. +60 URLs</span>
+      </div>
+      <div class="sug-desc">60 URLs have Salesforce product "Adsolut_KMO_beheer" which is not in category_mapping.json.</div>
+      <div class="ui-row" style="margin-bottom:6px;">
+        <span style="font-size:12px;font-weight:600;color:var(--text-2);">Map to:</span>
+        <span class="sug-combo">Adsolut boekhouding ▾</span>
+        <span style="font-size:12px;color:var(--text-2);">☐ Filter out (null)</span>
+        <span style="font-size:12px;color:var(--green);font-style:italic;margin-left:auto;"></span>
+      </div>
+      <div class="sug-actions">
+        <span class="ui-btn ui-btn-secondary" style="font-size:11px;">✓ Apply Fix</span>
+        <span class="ui-btn ui-btn-dim" style="font-size:11px;">Skip</span>
+      </div>
+    </div>
+  </div>
+
+  <h4>What the fields mean</h4>
+  <table>
+    <thead><tr><th>Element</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Est. +N URLs</td>
+        <td>The number of unique URLs with this Salesforce product code that are currently unmapped due to the product filter.</td>
+      </tr>
+      <tr>
+        <td>Map to dropdown</td>
+        <td>Pre-filled with the most common value from the <code>Suggested_Product</code> column — the taxonomy product of the best-scoring near-match for those URLs. You can change it by typing or selecting from the list.</td>
+      </tr>
+      <tr>
+        <td>Filter out (null)</td>
+        <td>Instead of mapping to a taxonomy product, write <code>null</code> in <code>category_mapping.json</code>. Use this for Salesforce tags that represent off-topic content (e.g. admin tags like <code>Regular_services</code>) — they will be excluded from the URL denominator on the next run.</td>
+      </tr>
+      <tr>
+        <td>✓ Apply Fix</td>
+        <td>Writes the mapping to <code>countries/{CC}/category_mapping.json</code> immediately. A timestamped backup is created automatically before writing.</td>
+      </tr>
+      <tr>
+        <td>Skip</td>
+        <td>Hides this card for the current session. No file is changed. The card will reappear if you re-analyse the same file.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="tip">
+    <span class="tip-icon">💡</span>
+    <div class="tip-body">
+      <strong>The dropdown is editable.</strong> If the pre-filled product name is wrong, just type the correct taxonomy product name. The list is populated from your taxonomy file — if it's not in the list, type it manually and make sure it matches exactly (case-sensitive).
+    </div>
+  </div>
+
+  <div class="warn">
+    <span class="warn-icon">⚠️</span>
+    <div class="warn-body">
+      <strong>After applying a category mapping fix, you must re-run the matcher</strong> for the change to take effect. Simply writing to <code>category_mapping.json</code> does not retroactively update the existing output file.
+    </div>
+  </div>
+
+
+  <!-- SYNONYM -->
+  <h3 style="color:#047857">SYNONYM suggestions</h3>
+  <p>Generated from the <strong>Keyword Recommendations</strong> sheet (written by the matcher when it runs). Rows with Priority <strong>HIGH</strong> or <strong>MEDIUM</strong> that are not yet in <code>synonyms.json</code> and whose Action is not <em>Cross-product</em>, <em>New topic?</em>, or <em>Review</em> are grouped by topic.</p>
+
+  <div class="sug-card">
+    <div class="sug-stripe" style="background:#10b981"></div>
+    <div class="sug-body">
+      <div class="sug-header">
+        <span class="sug-badge" style="background:#10b981">SYNONYM</span>
+        <span class="sug-title">#3  Add synonyms for topic "OSS aangifte"</span>
+        <span class="sug-gain">Est. +35 URLs</span>
+      </div>
+      <div class="sug-desc">Keywords that near-matched but are not yet in synonyms.json:</div>
+      <div style="font-size:12px;font-style:italic;color:var(--text);margin-bottom:8px;">"oss aangifte belgie" (×12),&nbsp; "oss btw" (×8),&nbsp; "oss vat" (×7),&nbsp; "one stop shop" (×5),&nbsp; "oss registratie" (×3)</div>
+      <div class="sug-actions">
+        <span class="ui-btn ui-btn-dim" style="font-size:11px;">Skip</span>
+        <span class="ui-btn ui-btn-secondary" style="font-size:11px;">✓ Apply Synonyms</span>
+        <span style="font-size:12px;color:var(--text-3);margin-left:auto;font-style:italic;"></span>
+      </div>
+    </div>
+  </div>
+
+  <h4>What the fields mean</h4>
+  <table>
+    <thead><tr><th>Element</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Topic name</td>
+        <td>The taxonomy topic these keywords almost matched. All suggested synonyms will be added under this topic key in <code>synonyms.json</code>.</td>
+      </tr>
+      <tr>
+        <td>Est. +N URLs</td>
+        <td>Sum of the <em>Frequency</em> values from the Keyword Recommendations sheet for these keywords — i.e. how many URL-keyword pairs nearly matched this topic. This is an upper bound; actual gain depends on how many unique URLs are involved.</td>
+      </tr>
+      <tr>
+        <td>Keyword list</td>
+        <td>Up to 8 keywords shown, sorted by frequency descending. The <code>×N</code> count is how many times that keyword appeared in the near-miss data.</td>
+      </tr>
+      <tr>
+        <td>✓ Apply Synonyms</td>
+        <td>Appends all listed keywords to the synonym list for this topic in <code>countries/{CC}/synonyms.json</code>. Duplicates are automatically skipped. A timestamped backup is created first.</td>
+      </tr>
+      <tr>
+        <td>Skip</td>
+        <td>Hides this card. No file is changed.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="tip">
+    <span class="tip-icon">💡</span>
+    <div class="tip-body">
+      <strong>Review before applying.</strong> Scan the keyword list quickly to check all suggested terms genuinely relate to the topic. If one looks wrong (e.g. a generic word that just happened to score highly), use the Synonym Editor tab to remove it after applying, or skip this suggestion and add only the good ones manually.
+    </div>
+  </div>
+
+  <div class="note">
+    <span class="note-icon">ℹ️</span>
+    <div class="note-body">
+      <strong>Keywords already in synonyms.json are automatically excluded</strong> from the suggestion. The Apply button only writes net-new keywords — it never creates duplicates.
+    </div>
+  </div>
+
+
+  <!-- DATA ISSUE -->
+  <h3 style="color:#b45309">DATA ISSUE &amp; NO MATCH notices</h3>
+  <p>These are informational — there is no Apply button because there is no config-file fix to make.</p>
+
+  <div class="sug-card">
+    <div class="sug-stripe" style="background:#f59e0b"></div>
+    <div class="sug-body">
+      <div class="sug-header">
+        <span class="sug-badge" style="background:#f59e0b">DATA ISSUE</span>
+        <span class="sug-title">#9  URLs with no keywords</span>
+      </div>
+      <div class="sug-desc">45 URLs have no extractable keywords (all content columns empty). These cannot be improved via synonyms or category mapping — check Title, Summary, and Description columns.</div>
+    </div>
+  </div>
+
+  <div class="sug-card" style="margin-top:8px;">
+    <div class="sug-stripe" style="background:#8b5cf6"></div>
+    <div class="sug-body">
+      <div class="sug-header">
+        <span class="sug-badge" style="background:#8b5cf6">NO MATCH</span>
+        <span class="sug-title">#10  URLs with no topic matches</span>
+      </div>
+      <div class="sug-desc">120 URLs have keywords but no topics matched above the threshold. Try lowering the threshold or adding synonyms (check the Keyword Recommendations sheet).</div>
+    </div>
+  </div>
+
+  <table>
+    <thead><tr><th>Type</th><th>Root cause</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>DATA ISSUE</td>
+        <td><code>Unmapped_Reason</code> = "No keywords extracted from row" — all keyword and content columns are empty</td>
+        <td>Go back to the source data. Populate Title, Summary, or Description for these articles, then re-run the content keyword extractor and matcher.</td>
+      </tr>
+      <tr>
+        <td>NO MATCH</td>
+        <td><code>Unmapped_Reason</code> = "No matches above X% threshold" — keywords exist but none scored high enough</td>
+        <td>Open the Keyword Recommendations sheet and look for these URLs. Add synonyms for any near-miss topics, or consider lowering the threshold slider on the Setup tab.</td>
+      </tr>
+    </tbody>
+  </table>
+
+
+  <!-- ─────────────────────────────── SECTION 4 ─── -->
+  <div class="section-header" id="workflow">
+    <div class="section-num">4</div>
+    <div>
+      <h2>Step-by-step workflow</h2>
+      <p>From running the matcher to hitting your target</p>
+    </div>
+  </div>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">Run the matcher (Setup tab)</div>
+        <p>Make sure the output filename contains a timestamp so previous results aren't overwritten. The output file must include the <strong>Keyword Recommendations</strong> sheet — this happens automatically unless you explicitly disabled it.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">Switch to Campaign Assistant tab</div>
+        <p>The <strong>Match File</strong> field is auto-populated if you ran the matcher in this session. Otherwise click <strong>Auto-fill</strong> or <strong>Browse</strong> to find the file. Confirm the <strong>Country</strong> is correct and set your <strong>Target</strong> percentage.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">Click Analyse</div>
+        <p>The status label shows "Analysing…" while working. For a typical 1,500-URL file this takes a few seconds. The stats strip and suggestion cards appear when done.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num" style="background:var(--green)">4</div>
+      <div class="step-content">
+        <div class="step-title">Review and apply suggestions top-to-bottom</div>
+        <p>Start with the highest-gain cards (they appear first). For each one: read the description, confirm the fix looks correct, then click <strong>✓ Apply Fix</strong> or <strong>✓ Apply Synonyms</strong>. The button turns grey and shows "Applied" when done. Use <strong>Skip</strong> to hide cards you want to ignore.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num" style="background:var(--green)">5</div>
+      <div class="step-content">
+        <div class="step-title">Click Re-run Matcher</div>
+        <p>At the bottom of the tab. This switches you to the Setup tab, triggers a new matcher run with the same settings, and after completion automatically re-analyses the new output.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num" style="background:var(--purple)">6</div>
+      <div class="step-content">
+        <div class="step-title">Review the delta</div>
+        <p>The status label shows the before/after comparison (e.g. "Re-run: 72.4% ↑4.3pp +76 URLs mapped") and the tab switches back to Campaign Assistant automatically. The stats strip now shows your new match rate. Repeat from step 4 until you reach the target.</p>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ─────────────────────────────── SECTION 5 ─── -->
+  <div class="section-header" id="applying">
+    <div class="section-num">5</div>
+    <div>
+      <h2>Applying fixes in detail</h2>
+      <p>What happens when you click Apply, and how to undo</p>
+    </div>
+  </div>
+
+  <h3>What Apply Fix does (Category Mapping)</h3>
+
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-connector"><div class="flow-dot"></div><div class="line"></div></div>
+      <div class="flow-body"><div class="flow-label">Read category_mapping.json</div><div class="flow-sub">Loads the current file from <code>countries/{CC}/category_mapping.json</code></div></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-connector"><div class="arrow"></div><div class="flow-dot"></div><div class="line"></div></div>
+      <div class="flow-body"><div class="flow-label">Create timestamped backup</div><div class="flow-sub">Copies file to <code>category_mapping_backup_YYYYMMDD_HHMMSS.json</code> in the same folder</div></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-connector"><div class="arrow"></div><div class="flow-dot green"></div><div class="line"></div></div>
+      <div class="flow-body"><div class="flow-label">Write new entry</div><div class="flow-sub">Adds <code>"Adsolut_KMO_beheer": "Adsolut boekhouding"</code> (or <code>null</code> for Filter out)</div></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-connector"><div class="arrow"></div><div class="flow-dot green"></div></div>
+      <div class="flow-body"><div class="flow-label">Save file</div><div class="flow-sub">Writes the updated JSON back with 2-space indentation</div></div>
+    </div>
+  </div>
+
+  <h3>What Apply Synonyms does</h3>
+
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-connector"><div class="flow-dot"></div><div class="line"></div></div>
+      <div class="flow-body"><div class="flow-label">Read synonyms.json</div><div class="flow-sub">Loads from <code>countries/{CC}/synonyms.json</code></div></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-connector"><div class="arrow"></div><div class="flow-dot"></div><div class="line"></div></div>
+      <div class="flow-body"><div class="flow-label">Create timestamped backup</div><div class="flow-sub">Saves <code>synonyms_backup_YYYYMMDD_HHMMSS.json</code> first</div></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-connector"><div class="arrow"></div><div class="flow-dot green"></div><div class="line"></div></div>
+      <div class="flow-body"><div class="flow-label">Append new synonyms</div><div class="flow-sub">Merges the suggested keywords into the <code>synonyms → {TopicName}</code> list; skips any already present</div></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-connector"><div class="arrow"></div><div class="flow-dot green"></div></div>
+      <div class="flow-body"><div class="flow-label">Save file</div><div class="flow-sub">Writes the updated JSON. The <code>product_synonyms</code> section and all other topics are preserved unchanged.</div></div>
+    </div>
+  </div>
+
+  <h3>How to undo a change</h3>
+  <p>Every apply operation creates a backup file in the same folder as the JSON it modifies. To undo:</p>
+  <ol>
+    <li>Open File Explorer and navigate to <code>countries/{CC}/</code></li>
+    <li>Find the backup file: <code>synonyms_backup_20260223_143022.json</code> or <code>category_mapping_backup_20260223_143022.json</code></li>
+    <li>Rename the current file (e.g. append <code>_bad</code>)</li>
+    <li>Rename the backup to the original name (<code>synonyms.json</code> or <code>category_mapping.json</code>)</li>
+    <li>Re-run the matcher</li>
+  </ol>
+
+  <div class="tip">
+    <span class="tip-icon">💡</span>
+    <div class="tip-body">
+      <strong>Multiple backups accumulate over time.</strong> Old backups are harmless but you can delete them to tidy up. The Category Mapping Editor tab also provides a direct interface to review and remove individual entries without touching the JSON file.
+    </div>
+  </div>
+
+  <h3>Checking what was written</h3>
+  <p>After applying a fix, you can inspect the result directly:</p>
+  <ul>
+    <li><strong>Category Mapping:</strong> Switch to the <strong>Category Mapping</strong> tab and click <strong>Load</strong> — your new entry will appear in the table.</li>
+    <li><strong>Synonyms:</strong> Switch to the <strong>Synonym Editor</strong> tab, select the topic from the dropdown — the new keywords will be in the list.</li>
+  </ul>
+
+
+  <!-- ─────────────────────────────── SECTION 6 ─── -->
+  <div class="section-header" id="rerun">
+    <div class="section-num">6</div>
+    <div>
+      <h2>Re-running and the delta view</h2>
+      <p>Triggering a new run and reading the before/after comparison</p>
+    </div>
+  </div>
+
+  <p>After applying fixes, click <strong>Re-run Matcher</strong> at the bottom of the Campaign Assistant tab. This does the following automatically:</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">Saves baseline stats</div>
+        <p>The current match rate and mapped count are recorded so they can be compared against the new run.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">Switches to Setup tab and triggers run</div>
+        <p>You will see the progress log on the Console tab as normal. The matcher uses whatever settings are currently on the Setup tab — same threshold, same files.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">Automatically re-analyses the new output</div>
+        <p>Once the run completes, the Campaign Assistant silently reads the new file, computes fresh stats and suggestions, and updates the display.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num" style="background:var(--green)">4</div>
+      <div class="step-content">
+        <div class="step-title">Shows the delta and switches back</div>
+        <p>The tab switches back to Campaign Assistant. The status label shows the comparison: <code>Re-run: 72.4% ↑4.3pp (+76 URLs mapped)</code>. The stats strip updates to show the new numbers.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="warn">
+    <span class="warn-icon">⚠️</span>
+    <div class="warn-body">
+      <strong>Do not change the Setup tab settings</strong> between clicking Re-run Matcher and waiting for the run to complete. The re-run uses the current Setup tab state. If you need to change settings, do so on the Setup tab before clicking Re-run Matcher.
+    </div>
+  </div>
+
+  <h3>Running analysis manually (without Re-run)</h3>
+  <p>You can also analyse any previous match file at any time — just change the <strong>Match File</strong> path and click <strong>Analyse</strong> again. This is useful for comparing two different output files side by side (open two sessions of the app) or for going back to a historical run.</p>
+
+
+  <!-- ─────────────────────────────── SECTION 7 ─── -->
+  <div class="section-header" id="faq">
+    <div class="section-num">7</div>
+    <div>
+      <h2>FAQ &amp; Troubleshooting</h2>
+      <p>Common questions and what to do about them</p>
+    </div>
+  </div>
+
+  <div class="faq">
+
+    <div class="faq-item">
+      <div class="faq-q"><span class="q-badge">Q</span> The Keyword Recommendations sheet is missing — will the assistant still work?</div>
+      <div class="faq-a">
+        <p>Yes. If the <strong>Keyword Recommendations</strong> sheet is absent from the match file, the assistant skips the synonym suggestions entirely and only shows Category Mapping, Data Issue, and No Match cards. To get synonym suggestions, re-run the matcher — the sheet is generated automatically.</p>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q"><span class="q-badge">Q</span> The "Map to" dropdown is empty — how do I find the right product name?</div>
+      <div class="faq-a">
+        <p>The dropdown is populated from the <strong>Category Mapping</strong> tab data (if loaded) or from the taxonomy file. Try opening the Category Mapping tab and clicking Load first — the assistant will then have access to the product list. Alternatively, open the taxonomy file and look for the correct Product column value. You can also type the product name directly into the dropdown field.</p>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q"><span class="q-badge">Q</span> A category mapping suggestion appeared even though that product is already in category_mapping.json — why?</div>
+      <div class="faq-a">
+        <p>This can happen if the Salesforce product code has different capitalisation or whitespace than the key in <code>category_mapping.json</code>. The assistant matches keys case-insensitively, but check the JSON file directly if you see this. Also check that the entry isn't under a <code>_comment</code> key (those are ignored during matching).</p>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q"><span class="q-badge">Q</span> I applied synonyms but the next run didn't improve those URLs — what happened?</div>
+      <div class="faq-a">
+        <p>A few possibilities:</p>
+        <p>1. <strong>Synonym didn't match:</strong> The synonym is added to <code>synonyms.json</code> under the exact topic name from the Keyword Recommendations sheet. If that topic name doesn't match exactly what's in the taxonomy file, the expansion won't fire. Open the Synonym Editor and check the topic key.</p>
+        <p>2. <strong>Product filter still blocking:</strong> If the URL also has a product mismatch, matching the topic still isn't enough — fix the category mapping too.</p>
+        <p>3. <strong>Score still below threshold:</strong> The synonym adds a new candidate string for fuzzy matching, but if the match still scores below 80%, it won't appear. Try lowering the threshold, or check whether the keyword is too different from the synonym.</p>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q"><span class="q-badge">Q</span> Can I apply multiple fixes and then do a single re-run?</div>
+      <div class="faq-a">
+        <p>Yes — this is the recommended approach. Apply all the fixes you want (click Apply on multiple cards), then click <strong>Re-run Matcher</strong> once. The delta view will show the combined uplift from all your changes.</p>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q"><span class="q-badge">Q</span> The status label shows an error after clicking Analyse — what do I do?</div>
+      <div class="faq-a">
+        <p>The most common causes are:</p>
+        <ul>
+          <li><strong>"File not found"</strong> — the file has been moved or renamed. Use Browse to locate it.</li>
+          <li><strong>"Error reading file: … sheet 'Results'"</strong> — the file doesn't have a Results sheet. Make sure you're pointing at a match output file (<code>taxonomy_match_*.xlsx</code>), not the taxonomy file or semantic carriers file.</li>
+          <li><strong>File is open in Excel</strong> — close Excel and try again.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q"><span class="q-badge">Q</span> The match rate shown doesn't match what I see in the Gap Analysis report — why?</div>
+      <div class="faq-a">
+        <p>Both use per-unique-URL counting. Small differences can occur if:</p>
+        <ul>
+          <li>The Gap Analysis report was generated from a <em>different</em> run of the matcher than the file you're analysing in the Campaign Assistant.</li>
+          <li>The Gap Analysis report uses its own logic for "Progress" tracking (stored in <code>gap_analysis_progress.json</code>) which may include a baseline from an earlier run.</li>
+        </ul>
+        <p>The Campaign Assistant always reads directly from the Results sheet you provide — it does not use <code>gap_analysis_progress.json</code>.</p>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q"><span class="q-badge">Q</span> How do I know which suggestions to apply and which to Skip?</div>
+      <div class="faq-a">
+        <p>Apply: suggestions where the fix is clearly correct — e.g. a Salesforce product code you recognise and know maps to a specific product, or synonyms that are obviously related to the topic (e.g. "oss aangifte belgie" → "OSS aangifte").</p>
+        <p>Skip: suggestions that look ambiguous, where the pre-filled product looks wrong, or where the suggested synonyms include generic words that might cause false matches elsewhere. You can always apply these manually via the Synonym Editor or Category Mapping tab after further review.</p>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q"><span class="q-badge">Q</span> I accidentally applied the wrong product in a category mapping — how do I fix it?</div>
+      <div class="faq-a">
+        <p>Open the <strong>Category Mapping</strong> tab, find the entry, double-click to edit it and change the target product, then click <strong>Save</strong>. No backup is needed since the Category Mapping tab has its own save/load cycle. Alternatively, restore from the timestamped backup JSON file in <code>countries/{CC}/</code>.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- REFERENCE TABLE -->
+  <h3>Quick reference: suggestion types</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Badge colour</th>
+        <th>Source</th>
+        <th>Has Apply button?</th>
+        <th>File written</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="pill pill-blue">CATEGORY MAP</span></td>
+        <td>Blue</td>
+        <td><code>Unmapped_Reason</code> = "Product filter excluded"</td>
+        <td>Yes</td>
+        <td><code>countries/{CC}/category_mapping.json</code></td>
+      </tr>
+      <tr>
+        <td><span class="pill pill-green">SYNONYM</span></td>
+        <td>Green</td>
+        <td>Keyword Recommendations sheet (HIGH/MEDIUM priority)</td>
+        <td>Yes</td>
+        <td><code>countries/{CC}/synonyms.json</code></td>
+      </tr>
+      <tr>
+        <td><span class="pill pill-orange">DATA ISSUE</span></td>
+        <td>Amber</td>
+        <td><code>Unmapped_Reason</code> = "No keywords extracted from row"</td>
+        <td>No</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><span class="pill pill-purple">NO MATCH</span></td>
+        <td>Purple</td>
+        <td><code>Unmapped_Reason</code> = "No matches above X% threshold"</td>
+        <td>No</td>
+        <td>—</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Quick reference: controls</h3>
+
+  <table>
+    <thead>
+      <tr><th>Button / Control</th><th>What it does</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Browse</td><td>File picker — select any <code>taxonomy_match_*.xlsx</code> output file</td></tr>
+      <tr><td>Auto-fill</td><td>Copies the path of the most recent run into the Match File field (same session only)</td></tr>
+      <tr><td>Analyse</td><td>Reads the match file and generates suggestions; updates stats strip</td></tr>
+      <tr><td>✓ Apply Fix</td><td>Writes the chosen product mapping to <code>category_mapping.json</code> with backup</td></tr>
+      <tr><td>✓ Apply Synonyms</td><td>Appends suggested keywords to <code>synonyms.json</code> with backup</td></tr>
+      <tr><td>Skip</td><td>Hides the card for this session; no file is changed</td></tr>
+      <tr><td>Re-run Matcher</td><td>Triggers a new matcher run; auto re-analyses on completion; shows delta</td></tr>
+    </tbody>
+  </table>
+
+  <div class="divider"></div>
+
+  <div class="card" style="background:var(--blue-bg);border-color:rgba(29,78,216,.15)">
+    <div class="card-title" style="color:var(--blue)"><span class="dot" style="background:var(--blue)"></span>Related tools</div>
+    <ul style="color:var(--text-2);font-size:13px;">
+      <li><strong>Category Mapping tab</strong> — full table editor for <code>category_mapping.json</code>; review and edit all mappings</li>
+      <li><strong>Synonym Editor tab</strong> — manage individual synonyms per topic</li>
+      <li><strong>Synonym Assistant tab</strong> — alternative synonym workflow using the Keyword Recommendations sheet directly</li>
+      <li><strong>Reports tab → Gap Analysis</strong> — generates the full taxonomy gap analysis Excel report with near-miss tables and synonym recommendations</li>
+      <li><strong>unmapped_review.html</strong> — standalone browser tool for triaging unmapped URLs row-by-row with export to patch files</li>
+    </ul>
+  </div>
+
+</div><!-- /page -->
+
+</body>
+</html>

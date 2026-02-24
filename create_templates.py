@@ -1,5 +1,5 @@
-"""
-Create template Excel files for NL Taxonomy Mapper V3
+﻿"""
+Create template Excel files for Taxonomy Mapper V3
 """
 import pandas as pd
 

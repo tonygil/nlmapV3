@@ -1,0 +1,916 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taxonomy Mapper — Belgium Workflow Guide</title>
+<style>
+/* ===== SCREEN & PRINT SHARED ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 11pt;
+  line-height: 1.6;
+  color: #1a1a2e;
+  background: #f5f7fa;
+}
+
+.page {
+  max-width: 210mm;
+  margin: 0 auto;
+  background: #fff;
+  box-shadow: 0 2px 20px rgba(0,0,0,.12);
+}
+
+/* ===== COVER PAGE ===== */
+.cover {
+  background: linear-gradient(145deg, #0f2027, #203a43, #2c5364);
+  color: #fff;
+  padding: 70px 60px 60px;
+  min-height: 200px;
+}
+.cover .logo-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 50px;
+}
+.cover .logo-icon {
+  background: rgba(72,202,228,.25);
+  border: 1px solid #48cae4;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 1.4rem;
+}
+.cover .logo-text {
+  font-size: .85rem;
+  color: #8ecae6;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+.cover h1 {
+  font-size: 2.4rem;
+  font-weight: 300;
+  margin-bottom: 10px;
+  letter-spacing: 1px;
+}
+.cover h1 strong { font-weight: 700; color: #48cae4; }
+.cover .subtitle {
+  font-size: 1.1rem;
+  color: rgba(255,255,255,.6);
+  margin-bottom: 40px;
+}
+.cover .cover-chips {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 50px;
+}
+.cover .chip {
+  background: rgba(72,202,228,.15);
+  border: 1px solid rgba(72,202,228,.4);
+  border-radius: 20px;
+  padding: 4px 16px;
+  font-size: .82rem;
+  color: #90e0ef;
+}
+.cover .cover-meta {
+  border-top: 1px solid rgba(255,255,255,.15);
+  padding-top: 20px;
+  font-size: .82rem;
+  color: rgba(255,255,255,.4);
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ===== CONTENT SECTIONS ===== */
+.content { padding: 0 50px; }
+
+/* ===== SECTION HEADERS ===== */
+.section {
+  margin: 36px 0 16px;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e8f4f8;
+}
+.section-num {
+  background: linear-gradient(135deg, #0077b6, #023e8a);
+  color: #fff;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: .9rem;
+  flex-shrink: 0;
+}
+.section-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0077b6;
+}
+h2.plain {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0077b6;
+  margin: 28px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid #e8f4f8;
+}
+
+/* ===== STEP BOXES ===== */
+.step-box {
+  border-left: 4px solid #0077b6;
+  background: #f0f8ff;
+  border-radius: 0 8px 8px 0;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+}
+.step-box h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #023e8a;
+  margin-bottom: 8px;
+}
+.step-box p, .step-box li { font-size: .92rem; color: #2c3e50; }
+.step-box ul, .step-box ol { padding-left: 20px; margin-top: 6px; }
+.step-box li { margin-bottom: 4px; }
+
+/* ===== CALLOUT BOXES ===== */
+.callout {
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin: 14px 0;
+  font-size: .9rem;
+}
+.callout.warning {
+  background: #fff8e1;
+  border-left: 4px solid #f9a825;
+  color: #5d4037;
+}
+.callout.danger {
+  background: #ffebee;
+  border-left: 4px solid #c62828;
+  color: #4a1010;
+}
+.callout.success {
+  background: #e8f5e9;
+  border-left: 4px solid #2e7d32;
+  color: #1b4332;
+}
+.callout.info {
+  background: #e3f2fd;
+  border-left: 4px solid #0277bd;
+  color: #01345c;
+}
+.callout strong { display: block; margin-bottom: 4px; font-size: .95rem; }
+.callout ul { padding-left: 18px; margin-top: 6px; }
+.callout li { margin-bottom: 3px; }
+
+/* ===== FLOW DIAGRAM ===== */
+.flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+.flow-step {
+  flex: 1;
+  min-width: 100px;
+  background: linear-gradient(135deg, #0077b6, #023e8a);
+  color: #fff;
+  border-radius: 8px;
+  padding: 14px 12px;
+  text-align: center;
+  position: relative;
+  font-size: .82rem;
+}
+.flow-step .fs-num {
+  background: rgba(255,255,255,.2);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: .75rem;
+  margin: 0 auto 6px;
+}
+.flow-step .fs-label { font-weight: 600; font-size: .8rem; line-height: 1.3; }
+.flow-step .fs-file { font-size: .7rem; color: rgba(255,255,255,.65); margin-top: 4px; }
+.flow-arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  color: #0077b6;
+  font-size: 1.3rem;
+  font-weight: 300;
+}
+
+/* ===== TABLES ===== */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: .88rem;
+}
+thead th {
+  background: linear-gradient(135deg, #0077b6, #023e8a);
+  color: #fff;
+  padding: 9px 12px;
+  text-align: left;
+  font-weight: 600;
+}
+tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e8edf2;
+  vertical-align: top;
+}
+tbody tr:nth-child(even) td { background: #f5f9fc; }
+tbody tr:hover td { background: #eaf4fb; }
+td code, th code {
+  background: #e8f4f8;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: 'Consolas', monospace;
+  font-size: .82rem;
+  color: #0277bd;
+}
+
+/* ===== APPROVE / DISMISS TABLE ===== */
+.approve { color: #2e7d32; font-weight: 600; }
+.dismiss { color: #c62828; font-weight: 600; }
+.caution { color: #e65100; font-weight: 600; }
+
+/* ===== CODE BLOCK ===== */
+.code-block {
+  background: #1e2a38;
+  color: #e0f2fe;
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-family: 'Consolas', monospace;
+  font-size: .82rem;
+  margin: 10px 0;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+.code-block .comment { color: #64b5f6; }
+.code-block .file    { color: #80cbc4; }
+.code-block .arrow   { color: #ffcc02; }
+
+/* ===== DIVIDER ===== */
+.divider {
+  border: none;
+  border-top: 1px solid #e8edf2;
+  margin: 30px 0;
+}
+
+/* ===== BADGE ===== */
+.badge {
+  display: inline-block;
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: .75rem;
+  font-weight: 600;
+}
+.badge.high   { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+.badge.medium { background: #fff8e1; color: #e65100; border: 1px solid #ffcc02; }
+.badge.low    { background: #f3e5f5; color: #6a1b9a; border: 1px solid #ce93d8; }
+.badge.ok     { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+
+/* ===== PAGE FOOTER ===== */
+.doc-footer {
+  background: #f5f7fa;
+  border-top: 2px solid #e8edf2;
+  padding: 20px 50px;
+  font-size: .78rem;
+  color: #9aacb8;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ===== PRINT STYLES ===== */
+@media print {
+  body { background: #fff; font-size: 10pt; }
+  .page { box-shadow: none; max-width: 100%; }
+  .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .step-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .callout  { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .flow-step{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  thead th  { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .code-block{-webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page-break { page-break-before: always; }
+  .no-break { page-break-inside: avoid; }
+  a { color: inherit; text-decoration: none; }
+}
+
+/* ===== PRINT BUTTON (screen only) ===== */
+.print-bar {
+  background: #0077b6;
+  color: #fff;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: .85rem;
+  position: sticky;
+  top: 0;
+  z-index: 999;
+}
+.print-btn {
+  background: #fff;
+  color: #0077b6;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 20px;
+  font-weight: 700;
+  cursor: pointer;
+  font-size: .85rem;
+}
+.print-btn:hover { background: #e3f2fd; }
+@media print { .print-bar { display: none; } }
+</style>
+</head>
+<body>
+
+<!-- Print bar (screen only) -->
+<div class="print-bar">
+  <span>📄 Taxonomy Mapper — Belgium Workflow Guide &nbsp;·&nbsp; To save as PDF: click Print → change destination to "Save as PDF"</span>
+  <button class="print-btn" onclick="window.print()">🖨 Print / Save as PDF</button>
+</div>
+
+<div class="page">
+
+<!-- ===== COVER ===== -->
+<div class="cover">
+  <div class="logo-bar">
+    <span class="logo-icon">📊</span>
+    <span class="logo-text">Taxonomy Mapper V3 &nbsp;·&nbsp; Internal Reference</span>
+  </div>
+  <h1>Belgium <strong>Workflow Guide</strong></h1>
+  <p class="subtitle">Step-by-step process for mapping Belgian Salesforce Knowledge articles<br>to the Adsolut / ExpertM / Briljant taxonomy</p>
+  <div class="cover-chips">
+    <span class="chip">🇧🇪 Belgium (Dutch/French)</span>
+    <span class="chip">Salesforce Knowledge</span>
+    <span class="chip">Taxonomy Matching</span>
+    <span class="chip">No Excel required</span>
+  </div>
+  <div class="cover-meta">
+    <span>Version 3.21 &nbsp;·&nbsp; February 2026</span>
+    <span>Wolters Kluwer Internal</span>
+  </div>
+</div>
+
+<!-- ===== CONTENT ===== -->
+<div class="content">
+
+<!-- OVERVIEW -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-title">What this tool does</div>
+  </div>
+  <p>The <strong>Taxonomy Mapper</strong> takes URLs from the Salesforce Knowledge base and automatically maps them to the correct <strong>Product → Domain → Segment → Topic</strong> classification using fuzzy keyword matching. This tells us <em>which topic each help article covers</em> so the taxonomy team can identify gaps and improve coverage.</p>
+
+  <div class="callout info" style="margin-top:14px">
+    <strong>Key principle</strong>
+    The tool never invents topics — it only assigns topics that already exist in the taxonomy file. If an article doesn't match anything, it appears as UNMAPPED, which is useful information in itself.
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- FLOW OVERVIEW -->
+<h2 class="plain">End-to-end process overview</h2>
+
+<div class="flow no-break">
+  <div class="flow-step">
+    <div class="fs-num">1</div>
+    <div class="fs-label">Export from Salesforce</div>
+    <div class="fs-file">Knowledge__kav.csv</div>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">
+    <div class="fs-num">2</div>
+    <div class="fs-label">Import SF CSV</div>
+    <div class="fs-file">Semantic_BE.xlsx</div>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">
+    <div class="fs-num">3</div>
+    <div class="fs-label">Run Taxonomy Match</div>
+    <div class="fs-file">taxonomy_match_BE.xlsx</div>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">
+    <div class="fs-num">4</div>
+    <div class="fs-label">Review Synonyms</div>
+    <div class="fs-file">synonyms.json updated</div>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">
+    <div class="fs-num">5</div>
+    <div class="fs-label">Gap Analysis Report</div>
+    <div class="fs-file">GAP_REPORT.xlsx</div>
+  </div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step" style="background:linear-gradient(135deg,#2e7d32,#1b5e20)">
+    <div class="fs-num">6</div>
+    <div class="fs-label">View Dashboard</div>
+    <div class="fs-file">gap_analysis_dashboard.html</div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- FILE REFERENCE -->
+<h2 class="plain">File reference — what each file is</h2>
+
+<table class="no-break">
+  <thead>
+    <tr><th>File</th><th>Where it comes from</th><th>Used for</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Knowledge__kav.csv</code></td>
+      <td>Exported from Salesforce</td>
+      <td>Raw source data — 482 columns, only first 6 matter</td>
+    </tr>
+    <tr>
+      <td><code>Semantic_BE_{datetime}.xlsx</code></td>
+      <td>Created by Import SF CSV step</td>
+      <td>Clean input for the taxonomy matcher — has URL, Title, Keywords 1-12</td>
+    </tr>
+    <tr>
+      <td><code>countries/BE/taxonomy.xlsx</code></td>
+      <td>Provided by taxonomy team</td>
+      <td>The lookup table — Product, Domain, Segment, Topic columns</td>
+    </tr>
+    <tr>
+      <td><code>countries/BE/synonyms.json</code></td>
+      <td>Built up over time via synonym review</td>
+      <td>Teaches the matcher alternative names for topics (e.g. "e-invoicing" → "Peppol E-invoicing")</td>
+    </tr>
+    <tr>
+      <td><code>taxonomy_match_BE.xlsx</code></td>
+      <td>Output of taxonomy match run</td>
+      <td>The results — one row per URL-Segment with matched topics, scores, relevance</td>
+    </tr>
+    <tr>
+      <td><code>TAXONOMY_GAP_ANALYSIS_REPORT.xlsx</code></td>
+      <td>Output of Gap Analysis Report</td>
+      <td>8-sheet analysis — never-matched topics, phantoms, synonym recommendations</td>
+    </tr>
+    <tr>
+      <td><code>gap_analysis_dashboard.html</code></td>
+      <td>Generated once, reused forever</td>
+      <td>Visual dashboard — open in browser, pick any country's gap report Excel</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr class="divider">
+
+<!-- STEPS -->
+<div class="page-break"></div>
+
+<!-- STEP 1 -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-num">1</div>
+    <div class="section-title">Export articles from Salesforce</div>
+  </div>
+
+  <div class="step-box no-break">
+    <h3>What to export</h3>
+    <ul>
+      <li>Go to Salesforce → Knowledge → Articles</li>
+      <li>Export as <strong>Knowledge__kav CSV</strong></li>
+      <li>The file will have 482+ columns — this is normal, the tool handles it automatically</li>
+      <li>Only these columns are actually used: <code>Knowledge_Url__c</code>, <code>Title</code>, <code>Summary</code>, <code>Answer__c</code>, <code>Data_Categories__c</code></li>
+    </ul>
+  </div>
+
+  <div class="callout info no-break">
+    <strong>About Data_Categories__c</strong>
+    This column contains the product assignments (e.g. <code>Adsolut_Account;ExpertM_Plus;Briljant_Account</code>). The tool uses this to expand one article into multiple rows — one per product — so each article can match topics from all its relevant products. Belgium typically gains ~700 extra rows this way (1,809 unique URLs → 2,518 total rows).
+  </div>
+</div>
+
+<!-- STEP 2 -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-num">2</div>
+    <div class="section-title">Import the CSV into NLMap (Import SF CSV)</div>
+  </div>
+
+  <div class="step-box no-break">
+    <h3>In the NLMap GUI</h3>
+    <ol>
+      <li>Open NLMap: double-click <code>launch_gui.bat</code> or run <code>python taxonomy_matcher_gui.py</code></li>
+      <li>Go to the <strong>Setup tab</strong></li>
+      <li>Click the <strong>📥 Import SF CSV</strong> button (purple, bottom bar)</li>
+      <li>Select your <code>Knowledge__kav.csv</code> export file</li>
+      <li>Set Country to <strong>BE</strong></li>
+      <li>Optionally select the taxonomy file for keyword ranking</li>
+      <li>Click <strong>▶ Import CSV</strong></li>
+    </ol>
+  </div>
+
+  <div class="step-box no-break">
+    <h3>What happens automatically</h3>
+    <ul>
+      <li>Ignores the 476 junk columns</li>
+      <li>Extracts URLs from HTML anchor tags in the URL column</li>
+      <li>Converts internal Lightning URLs to public community URLs</li>
+      <li>Expands multi-product articles (using <code>Data_Categories__c</code>)</li>
+      <li>Extracts Keywords 1-12 from Title, Summary, and Answer content</li>
+      <li>Saves output as <code>Semantic_BE_{datetime}.xlsx</code></li>
+    </ul>
+  </div>
+
+  <div class="callout success no-break">
+    <strong>✓ Output file location</strong>
+    The file is saved in the same folder as the input CSV, named <code>Semantic_BE_YYYYMMDD_HHMMSS.xlsx</code>. Make a note of this path — you'll need it in the next steps.
+  </div>
+</div>
+
+<!-- STEP 3 -->
+<div class="section page-break">
+  <div class="section-header">
+    <div class="section-num">3</div>
+    <div class="section-title">Run the Taxonomy Match</div>
+  </div>
+
+  <div class="step-box no-break">
+    <h3>In the Setup tab</h3>
+    <ol>
+      <li>Set <strong>Country</strong> to <code>BE</code></li>
+      <li><strong>Semantic File:</strong> browse to <code>Semantic_BE_{datetime}.xlsx</code> (from Step 2)</li>
+      <li><strong>Taxonomy File:</strong> browse to your BE taxonomy (e.g. <code>countries/BE/taxonomy.xlsx</code>)</li>
+      <li>Leave <strong>Threshold</strong> at <code>80</code> (default)</li>
+      <li>Leave <strong>Top Results per URL</strong> at <code>6</code> (default)</li>
+      <li>Click <strong>▶ Run Taxonomy Match</strong></li>
+    </ol>
+  </div>
+
+  <table class="no-break">
+    <thead><tr><th>Setting</th><th>Recommended value</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Country</td><td>BE</td><td>Loads BE synonyms and config</td></tr>
+      <tr><td>Threshold</td><td>80%</td><td>Below 80 = too many false matches</td></tr>
+      <tr><td>Use Summary</td><td>Optional</td><td>Adds extra keywords from Summary column</td></tr>
+      <tr><td>Top Results per URL</td><td>6</td><td>Max rows per URL in output</td></tr>
+      <tr><td>Debug Mode</td><td>Off</td><td>Only enable for troubleshooting individual URLs</td></tr>
+      <tr><td>Max Rows</td><td>0 (all)</td><td>Set to e.g. 10 for quick test runs only</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout info no-break">
+    <strong>How long does it take?</strong>
+    With 2,518 BE rows at threshold 80, expect approximately 25–40 minutes. The Console tab shows live progress every 50 URLs.
+  </div>
+
+  <div class="step-box no-break">
+    <h3>Output</h3>
+    <p>Results are saved as <code>taxonomy_match_BE.xlsx</code> (two sheets):</p>
+    <ul>
+      <li><strong>Results</strong> — one row per URL-Segment, with Topic_1, Topic_2…, Score, Relevance, Rank</li>
+      <li><strong>Keyword Recommendations</strong> — near-miss keywords that almost matched, with suggested synonyms</li>
+    </ul>
+  </div>
+</div>
+
+<!-- STEP 4 -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-num">4</div>
+    <div class="section-title">Post-Run Synonym Review</div>
+  </div>
+
+  <p style="margin-bottom:12px">After the match finishes, a <strong>Post-Run Synonym Review</strong> dialog opens automatically. It shows keywords that scored just below the 80% threshold — they almost matched a topic but didn't quite make it. You can approve them as synonyms to improve future match rates.</p>
+
+  <div class="callout warning no-break">
+    <strong>⚠ This is the most important step to get right</strong>
+    Approving bad synonyms will cause false matches in every future run and are hard to undo. Take time to review each row carefully. When in doubt — dismiss it.
+  </div>
+
+  <h3 style="margin:16px 0 10px;color:#023e8a;font-size:.97rem">Decision guide — approve or dismiss?</h3>
+
+  <table class="no-break">
+    <thead>
+      <tr><th>Keyword</th><th>Suggested Topic</th><th>Decision</th><th>Reason</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>artikel vind</td><td>Artikelen</td>
+        <td class="dismiss">❌ DISMISS</td>
+        <td>Salesforce UI chrome — "find article" button label, appears on every page</td>
+      </tr>
+      <tr>
+        <td>artikel lees</td><td>Artikelen</td>
+        <td class="dismiss">❌ DISMISS</td>
+        <td>Salesforce UI chrome — "read article" link, navigation noise</td>
+      </tr>
+      <tr>
+        <td>artikel legt</td><td>Artikelen</td>
+        <td class="dismiss">❌ DISMISS</td>
+        <td>Salesforce UI chrome — verb form from navigation menu</td>
+      </tr>
+      <tr>
+        <td>artikel leggen</td><td>Artikelen</td>
+        <td class="dismiss">❌ DISMISS</td>
+        <td>Salesforce UI chrome — navigation action phrase</td>
+      </tr>
+      <tr>
+        <td>kan aanmaken</td><td>Account aanmaken</td>
+        <td class="dismiss">❌ DISMISS</td>
+        <td>CMS action language — "can create", not a topic name</td>
+      </tr>
+      <tr>
+        <td>artikel willen</td><td>Artikelen</td>
+        <td class="dismiss">❌ DISMISS</td>
+        <td>UI phrase — "want to article", navigation noise</td>
+      </tr>
+      <tr>
+        <td>adsolut jaarrekening</td><td>Jaarrekening</td>
+        <td class="approve">✓ APPROVE</td>
+        <td>Product + topic name — real content keyword</td>
+      </tr>
+      <tr>
+        <td>adsolut fiscaal dossier</td><td>Fiscaal dossier</td>
+        <td class="approve">✓ APPROVE</td>
+        <td>Product + topic name — real content keyword</td>
+      </tr>
+      <tr>
+        <td>een e-invoicing</td><td>Peppol E-invoicing</td>
+        <td class="approve">✓ APPROVE</td>
+        <td>Dutch article + topic name — describes actual feature</td>
+      </tr>
+      <tr>
+        <td>elektronische facturen</td><td>Elektronisch Bankieren</td>
+        <td class="caution">? CHECK URLs</td>
+        <td>Could be real — click "Show URLs" to verify the pages are about this topic</td>
+      </tr>
+      <tr>
+        <td>wolters kluwer software</td><td>Wolters Kluwer Academy</td>
+        <td class="caution">? CHECK URLs</td>
+        <td>Generic brand name — check if URLs are actually Academy pages</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger no-break" style="margin-top:14px">
+    <strong>🚨 The "Artikelen" problem — what's happening</strong>
+    Every page on the Salesforce community site is technically "an article", so the site's navigation buttons (find article, read article, all articles) appear on every single page and get extracted as keywords. These phrases score ~76% against the "Artikelen" taxonomy topic (which is the legitimate software feature for managing knowledge base articles in Adsolut KMO-beheer). <strong>Do not approve any "artikel vind / lees / legt / leggen / willen / kunt" phrases.</strong> They are navigation noise, not content.
+  </div>
+
+  <div class="step-box no-break" style="margin-top:14px">
+    <h3>How to use the dialog</h3>
+    <ol>
+      <li>Click <strong>Show URLs</strong> on any row you're unsure about — shows up to 5 sample URLs so you can judge whether the pages genuinely cover that topic</li>
+      <li>Click the <strong>✓ checkbox</strong> in the left column to select rows you want to approve</li>
+      <li>Leave "artikel*" rows <strong>unchecked</strong> — they'll be dismissed automatically</li>
+      <li>Click <strong>Approve Selected</strong> to add the checked synonyms to <code>synonyms.json</code></li>
+      <li>Run the taxonomy match again — your approved synonyms will now produce matches</li>
+    </ol>
+  </div>
+
+  <div class="callout success no-break">
+    <strong>💡 Iterative improvement</strong>
+    You don't have to get this perfect in one pass. A typical cycle is: run match → approve a handful of clear synonyms → re-run match → match rate improves → fewer near-misses next time. After 3–4 cycles the match rate stabilises.
+  </div>
+</div>
+
+<!-- STEP 5 -->
+<div class="section page-break">
+  <div class="section-header">
+    <div class="section-num">5</div>
+    <div class="section-title">Run the Taxonomy Gap Analysis Report</div>
+  </div>
+
+  <p style="margin-bottom:12px">The Gap Analysis Report identifies which taxonomy topics have never been matched by any URL, which topics appear in the output but don't exist in the taxonomy (phantom topics), and suggests synonym candidates for improving coverage.</p>
+
+  <div class="step-box no-break">
+    <h3>In the Reports tab</h3>
+    <ol>
+      <li>Click the <strong>Reports</strong> tab in the top navigation</li>
+      <li>Scroll to the <strong>Taxonomy Gap Analysis Report</strong> section</li>
+      <li>Set the three file fields:</li>
+    </ol>
+    <table style="margin-top:10px">
+      <thead><tr><th>Field</th><th>Select this file</th><th>Required?</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Match File</strong></td><td><code>taxonomy_match_BE.xlsx</code> (from Step 3)</td><td>✓ Required</td></tr>
+        <tr><td><strong>Taxonomy</strong></td><td><code>countries/BE/taxonomy.xlsx</code></td><td>✓ Required</td></tr>
+        <tr><td><strong>Semantic</strong></td><td><code>Semantic_BE_{datetime}.xlsx</code> (from Step 2)</td><td>Optional</td></tr>
+        <tr><td><strong>Output</strong></td><td>Leave as default <code>TAXONOMY_GAP_ANALYSIS_REPORT.xlsx</code></td><td>—</td></tr>
+      </tbody>
+    </table>
+    <ol start="4" style="margin-top:10px">
+      <li>Click <strong>Generate Gap Analysis Report</strong></li>
+      <li>Wait for completion (typically 1–2 minutes)</li>
+    </ol>
+  </div>
+
+  <div class="step-box no-break" style="margin-top:10px">
+    <h3>What the report contains (8 sheets)</h3>
+    <table>
+      <thead><tr><th>Sheet</th><th>What it tells you</th></tr></thead>
+      <tbody>
+        <tr><td>1. Executive Summary</td><td>Overall match rate, total URLs, key findings at a glance</td></tr>
+        <tr><td>2. Phantom Topics</td><td>Topics in your match output that don't exist in the taxonomy — data quality issue</td></tr>
+        <tr><td>3. Never-Matched Topics</td><td>Taxonomy topics that matched zero URLs — candidates for new synonyms</td></tr>
+        <tr><td>4. Taxonomy Comparison</td><td>Compares current taxonomy against a reference taxonomy (optional)</td></tr>
+        <tr><td>5. Synonym Recommendations</td><td>Suggested keywords that could be added as synonyms for never-matched topics</td></tr>
+        <tr><td>6. Product Breakdown</td><td>Match rate per product (Adsolut, ExpertM, Briljant, etc.)</td></tr>
+        <tr><td>7. Action Items</td><td>Prioritised list: P1-CRITICAL, P1-HIGH, P2-MEDIUM, P3-LOW</td></tr>
+        <tr><td>8. Progress</td><td>History of all past runs — track whether match rate is improving over time</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- STEP 6 -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-num">6</div>
+    <div class="section-title">View the Dashboard (no Excel needed)</div>
+  </div>
+
+  <p style="margin-bottom:12px">The HTML dashboard lets you view the gap analysis results visually without needing Microsoft Excel installed. It works entirely in the browser and supports all countries.</p>
+
+  <div class="step-box no-break">
+    <h3>First time only — generate the dashboard file</h3>
+    <div class="code-block">
+<span class="comment"># Run once to create gap_analysis_dashboard.html</span>
+python generate_gap_dashboard.py
+    </div>
+    <p style="margin-top:8px;font-size:.88rem">This creates <code>gap_analysis_dashboard.html</code> in your project folder. You only need to do this once — the file can be reused for all future sessions and all countries.</p>
+  </div>
+
+  <div class="step-box no-break" style="margin-top:10px">
+    <h3>Every time — open the dashboard and load your report</h3>
+    <ol>
+      <li>Double-click <code>gap_analysis_dashboard.html</code> to open it in Edge or Chrome</li>
+      <li>Click <strong>📁 Select Excel File</strong></li>
+      <li>Browse to <code>TAXONOMY_GAP_ANALYSIS_REPORT.xlsx</code></li>
+      <li>The dashboard loads instantly — no further steps needed</li>
+      <li>To switch country, click <strong>📁 Load Different File</strong> in the top bar and select the other country's report</li>
+    </ol>
+  </div>
+
+  <div class="callout success no-break">
+    <strong>✓ What you'll see in the dashboard</strong>
+    <ul>
+      <li><strong>Match Rate ring</strong> — colour-coded green/amber/red (≥80% / 60–79% / &lt;60%)</li>
+      <li><strong>4 KPI cards</strong> — Never-Matched Topics, HIGH Priority Synonyms, Phantom Topics, Topics Covered</li>
+      <li><strong>Match Rate Trend chart</strong> — shows improvement over multiple runs (needs 2+ reports)</li>
+      <li><strong>Product Performance bar chart</strong> — match rate per product, sorted worst-first</li>
+      <li><strong>Synonym Recommendations</strong> — HIGH priority items with suggested keywords</li>
+      <li><strong>Never-Matched Topics table</strong> — filterable by product</li>
+      <li><strong>Progress History</strong> — full run history, latest highlighted</li>
+    </ul>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- REPEAT CYCLE -->
+<div class="page-break"></div>
+<h2 class="plain">The improvement cycle</h2>
+<p style="margin-bottom:14px">Taxonomy matching is an iterative process. Each cycle of approve-synonyms → re-run should improve the match rate by 2–5 percentage points. After 3–4 cycles it typically stabilises.</p>
+
+<div class="flow no-break" style="flex-direction:column;gap:8px">
+  <div style="display:flex;align-items:center;gap:10px">
+    <div class="flow-step" style="flex:none;width:200px;min-width:200px">
+      <div class="fs-label">Run Taxonomy Match</div>
+      <div class="fs-file">Check match rate in Console</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step" style="flex:none;width:200px;min-width:200px">
+      <div class="fs-label">Review Synonym Dialog</div>
+      <div class="fs-file">Approve real topics only</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step" style="flex:none;width:200px;min-width:200px">
+      <div class="fs-label">Run Gap Analysis Report</div>
+      <div class="fs-file">Check Progress sheet</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step" style="flex:none;width:200px;min-width:200px;background:linear-gradient(135deg,#2e7d32,#1b5e20)">
+      <div class="fs-label">View Dashboard</div>
+      <div class="fs-file">Is match rate improving?</div>
+    </div>
+  </div>
+  <div style="text-align:center;color:#0277bd;font-size:1.5rem;margin:4px 0">↺ repeat until match rate stabilises (typically 3–4 cycles)</div>
+</div>
+
+<hr class="divider">
+
+<!-- TROUBLESHOOTING -->
+<h2 class="plain">Troubleshooting</h2>
+
+<table class="no-break">
+  <thead><tr><th>Problem</th><th>Likely cause</th><th>Fix</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Match rate very low (&lt;50%)</td>
+      <td>Synonyms.json needs more entries for BE topics</td>
+      <td>Run 2–3 synonym review cycles, approving real topic names</td>
+    </tr>
+    <tr>
+      <td>"artikel*" phrases keep appearing</td>
+      <td>Semantic file extracted before v3.19 noise filter</td>
+      <td>Re-run Import SF CSV to get fresh keywords with noise filtering applied</td>
+    </tr>
+    <tr>
+      <td>Wrong product in output rows</td>
+      <td>Product comes from taxonomy match, not the input file</td>
+      <td>Normal — use synonyms to steer which topics (and therefore products) match</td>
+    </tr>
+    <tr>
+      <td>0 matches / file swap error</td>
+      <td>Semantic and Taxonomy files are in the wrong fields</td>
+      <td>Click "Swap Files" button or manually correct — Semantic has Keyword columns, Taxonomy has Topic columns</td>
+    </tr>
+    <tr>
+      <td>Match takes very long</td>
+      <td>Normal for large datasets</td>
+      <td>Use Max Rows = 100 and URL Filter for quick tests before running the full set</td>
+    </tr>
+    <tr>
+      <td>Dashboard shows no trend chart</td>
+      <td>Only one Gap Analysis Report has been run</td>
+      <td>Run the report again after the next synonym cycle — trend appears with 2+ data points</td>
+    </tr>
+    <tr>
+      <td>Gap report Excel "found a problem"</td>
+      <td>Data contains control characters or very long strings</td>
+      <td>This is handled automatically by the sanitize step — if it persists, report to the tool owner</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr class="divider">
+
+<!-- QUICK REFERENCE -->
+<h2 class="plain">Quick reference — synonym review decisions</h2>
+
+<table class="no-break">
+  <thead><tr><th>Pattern</th><th>Examples</th><th>Decision</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Dutch UI action phrases with "artikel"</td>
+      <td>artikel vind, artikel lees, artikel legt, artikel leggen, artikel willen, artikel kunt</td>
+      <td class="dismiss">❌ Always dismiss</td>
+    </tr>
+    <tr>
+      <td>CMS gerund action phrases</td>
+      <td>kan aanmaken, het instellen van, hoe te, een overzicht van</td>
+      <td class="dismiss">❌ Always dismiss</td>
+    </tr>
+    <tr>
+      <td>Product name + topic name</td>
+      <td>adsolut jaarrekening, expertm factuur, briljant loonadministratie</td>
+      <td class="approve">✓ Usually approve</td>
+    </tr>
+    <tr>
+      <td>Dutch article + topic name</td>
+      <td>een aangifte, het e-invoicing, de koppeling</td>
+      <td class="approve">✓ Usually approve</td>
+    </tr>
+    <tr>
+      <td>Generic brand phrases</td>
+      <td>wolters kluwer, wolters kluwer software</td>
+      <td class="caution">? Check URLs first</td>
+    </tr>
+    <tr>
+      <td>Feature variant names</td>
+      <td>elektronische facturen, digitale aangifte, automatische verwerking</td>
+      <td class="caution">? Check URLs first</td>
+    </tr>
+  </tbody>
+</table>
+
+</div><!-- /content -->
+
+<!-- FOOTER -->
+<div class="doc-footer">
+  <span>Taxonomy Mapper V3.21 &nbsp;·&nbsp; Belgium Workflow Guide &nbsp;·&nbsp; February 2026</span>
+  <span>Wolters Kluwer Internal &nbsp;·&nbsp; Not for external distribution</span>
+</div>
+
+</div><!-- /page -->
+</body>
+</html>

@@ -1,0 +1,1167 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taxonomy Mapper — Workflow Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          #f0f4f8;
+    --bg-raised:   #ffffff;
+    --bg-surface:  #f6f8fa;
+    --border:      rgba(0,0,0,.07);
+    --border-md:   rgba(0,0,0,.11);
+    --text:        #111827;
+    --text-2:      #5a6a7e;
+    --text-3:      #9daab8;
+    --font:        'Plus Jakarta Sans', system-ui, sans-serif;
+    --mono:        'JetBrains Mono', monospace;
+    --r:           6px;
+    --r-lg:        12px;
+    /* action colours — match unmapped_review.html */
+    --blue:        #1d4ed8; --blue-bg:    #eff6ff;
+    --green:       #047857; --green-bg:   #ecfdf5;
+    --orange:      #b45309; --orange-bg:  #fffbeb;
+    --purple:      #6d28d9; --purple-bg:  #f5f3ff;
+    --red:         #dc2626; --red-bg:     #fef2f2;
+    --gray:        #4b5563; --gray-bg:    #f9fafb;
+    --teal:        #0f766e; --teal-bg:    #f0fdfa;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-size: 15px;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border-md);
+    padding: 18px 40px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,.05);
+  }
+  header .logo {
+    width: 36px; height: 36px;
+    background: var(--blue);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800; font-size: 14px; flex-shrink: 0;
+  }
+  header h1 { font-size: 17px; font-weight: 700; }
+  header .subtitle { font-size: 13px; color: var(--text-2); font-weight: 400; }
+  header nav { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; }
+  header nav a {
+    font-size: 13px; font-weight: 500; color: var(--text-2);
+    text-decoration: none; padding: 5px 11px; border-radius: var(--r);
+    transition: background .15s, color .15s;
+  }
+  header nav a:hover { background: var(--bg-surface); color: var(--text); }
+
+  /* ── LAYOUT ── */
+  .page { max-width: 980px; margin: 0 auto; padding: 36px 24px 80px; }
+
+  /* ── SECTION HEADING ── */
+  .section-header {
+    display: flex; align-items: center; gap: 12px;
+    margin: 48px 0 20px;
+  }
+  .section-header:first-child { margin-top: 0; }
+  .section-num {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--blue); color: #fff;
+    font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .section-header h2 { font-size: 22px; font-weight: 700; }
+  .section-header p { font-size: 14px; color: var(--text-2); margin-top: 2px; }
+
+  h3 { font-size: 16px; font-weight: 700; margin: 24px 0 10px; }
+  h4 { font-size: 14px; font-weight: 700; margin: 16px 0 6px; }
+  p  { margin-bottom: 12px; color: var(--text-2); }
+  p:last-child { margin-bottom: 0; }
+  strong { color: var(--text); }
+
+  /* ── CARD ── */
+  .card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-md);
+    border-radius: var(--r-lg);
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 14px; font-weight: 700; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-title .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  /* ── PROCESS FLOW ── */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    margin: 8px 0 4px;
+  }
+  .flow-step {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    width: 100%;
+  }
+  .flow-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 40px;
+    flex-shrink: 0;
+  }
+  .flow-connector .line {
+    width: 2px;
+    flex: 1;
+    background: var(--border-md);
+    min-height: 12px;
+  }
+  .flow-connector .arrow {
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid var(--border-md);
+    margin: 0;
+  }
+  .flow-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    border: 2px solid var(--blue);
+    background: var(--bg-raised);
+    margin: 12px 0;
+    flex-shrink: 0;
+    align-self: center;
+  }
+  .flow-body {
+    flex: 1;
+    padding: 10px 0 10px 12px;
+    min-height: 48px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .flow-label {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .flow-sub {
+    font-size: 12px;
+    color: var(--text-2);
+    margin-top: 1px;
+  }
+  .flow-badge {
+    display: inline-block;
+    font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 20px;
+    margin-right: 4px; margin-top: 4px;
+    font-family: var(--mono);
+  }
+
+  /* ── PILL / BADGE ── */
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 600;
+    padding: 3px 10px; border-radius: 20px;
+    border: 1px solid transparent;
+  }
+  .pill-blue   { color: var(--blue);   background: var(--blue-bg);   border-color: rgba(29,78,216,.15); }
+  .pill-green  { color: var(--green);  background: var(--green-bg);  border-color: rgba(4,120,87,.15); }
+  .pill-orange { color: var(--orange); background: var(--orange-bg); border-color: rgba(180,83,9,.15); }
+  .pill-purple { color: var(--purple); background: var(--purple-bg); border-color: rgba(109,40,217,.15); }
+  .pill-red    { color: var(--red);    background: var(--red-bg);    border-color: rgba(220,38,38,.15); }
+  .pill-gray   { color: var(--gray);   background: var(--gray-bg);   border-color: rgba(75,85,99,.12); }
+  .pill-teal   { color: var(--teal);   background: var(--teal-bg);   border-color: rgba(15,118,110,.15); }
+
+  /* ── TOOL CARDS ── */
+  .tool-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+  @media (max-width: 680px) { .tool-grid { grid-template-columns: 1fr; } }
+  .tool-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-md);
+    border-radius: var(--r-lg);
+    padding: 18px 20px;
+    border-top: 3px solid transparent;
+  }
+  .tool-card.blue   { border-top-color: var(--blue); }
+  .tool-card.green  { border-top-color: var(--green); }
+  .tool-card.orange { border-top-color: var(--orange); }
+  .tool-card.purple { border-top-color: var(--purple); }
+  .tool-card.teal   { border-top-color: var(--teal); }
+  .tool-name { font-size: 14px; font-weight: 700; margin-bottom: 4px; font-family: var(--mono); }
+  .tool-desc { font-size: 13px; color: var(--text-2); margin-bottom: 10px; }
+  .tool-when { font-size: 12px; }
+  .tool-when strong { font-size: 12px; }
+  .io-row {
+    display: flex; gap: 6px; align-items: baseline;
+    font-size: 12px; color: var(--text-2); margin-top: 5px;
+  }
+  .io-label { font-weight: 700; color: var(--text); flex-shrink: 0; }
+
+  /* ── DECISION TREE ── */
+  .decision-root {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-md);
+    border-radius: var(--r-lg);
+    padding: 14px 18px;
+    font-size: 13px; font-weight: 600; color: var(--text);
+    text-align: center;
+    margin-bottom: 0;
+    position: relative;
+  }
+  .decision-branches {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-top: 24px;
+    position: relative;
+  }
+  .decision-branches::before {
+    content: '';
+    position: absolute;
+    top: -12px; left: 16%; right: 16%;
+    height: 1px; background: var(--border-md);
+  }
+  @media (max-width: 720px) { .decision-branches { grid-template-columns: 1fr; } }
+  .branch {
+    border-radius: var(--r-lg);
+    border: 1px solid var(--border-md);
+    overflow: hidden;
+  }
+  .branch-header {
+    padding: 10px 14px;
+    font-size: 12px; font-weight: 700;
+    border-bottom: 1px solid var(--border);
+  }
+  .branch-body {
+    padding: 12px 14px;
+    font-size: 13px; color: var(--text-2);
+  }
+  .branch-body ol { padding-left: 16px; }
+  .branch-body li { margin-bottom: 6px; }
+  .branch-body li:last-child { margin-bottom: 0; }
+  .branch-body li strong { color: var(--text); }
+
+  .branch.orange .branch-header { background: var(--orange-bg); color: var(--orange); }
+  .branch.green  .branch-header { background: var(--green-bg);  color: var(--green); }
+  .branch.red    .branch-header { background: var(--red-bg);    color: var(--red); }
+
+  /* ── QUICK REFERENCE TABLE ── */
+  .ref-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .ref-table th {
+    text-align: left; font-size: 12px; font-weight: 700;
+    color: var(--text-2); text-transform: uppercase; letter-spacing: .04em;
+    padding: 8px 14px; border-bottom: 1px solid var(--border-md);
+    background: var(--bg-surface);
+  }
+  .ref-table td {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .ref-table tr:last-child td { border-bottom: none; }
+  .ref-table tr:hover td { background: var(--bg-surface); }
+  code {
+    font-family: var(--mono);
+    font-size: 12px; background: var(--bg-surface);
+    border: 1px solid var(--border-md);
+    padding: 1px 5px; border-radius: 3px;
+    color: var(--purple);
+  }
+
+  /* ── TIPS / CALLOUT ── */
+  .callout {
+    border-radius: var(--r-lg); padding: 14px 18px;
+    font-size: 13.5px; margin: 12px 0;
+    display: flex; gap: 12px;
+  }
+  .callout-icon { font-size: 18px; flex-shrink: 0; line-height: 1.4; }
+  .callout.tip    { background: var(--blue-bg);   border-left: 4px solid var(--blue); }
+  .callout.warn   { background: var(--orange-bg); border-left: 4px solid var(--orange); }
+  .callout.danger { background: var(--red-bg);    border-left: 4px solid var(--red); }
+  .callout.good   { background: var(--green-bg);  border-left: 4px solid var(--green); }
+
+  /* ── STEP LIST ── */
+  .steps { counter-reset: step; margin: 8px 0; }
+  .steps li {
+    list-style: none; position: relative;
+    padding: 10px 12px 10px 44px;
+    border-radius: var(--r); margin-bottom: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    font-size: 13.5px; color: var(--text-2);
+    counter-increment: step;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute; left: 12px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--blue); color: #fff;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    top: 50%; transform: translateY(-50%);
+  }
+  .steps li strong { color: var(--text); }
+
+  /* ── FOOTER ── */
+  footer {
+    text-align: center; font-size: 12px; color: var(--text-3);
+    padding: 32px 24px;
+    border-top: 1px solid var(--border);
+    margin-top: 64px;
+  }
+
+  /* ── DIVIDER ── */
+  hr { border: none; border-top: 1px solid var(--border-md); margin: 40px 0; }
+
+  /* ── MATCHING ── */
+  .relevance-table { width: 100%; font-size: 13px; }
+  .relevance-table td:first-child { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  .relevance-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .relevance-table tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">NL</div>
+  <div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <h1>Taxonomy Mapper V3</h1>
+      <span class="pill pill-blue">Workflow Guide</span>
+    </div>
+    <div class="subtitle">End-to-end process · Tool reference · Decision trees · Quick-fix tables</div>
+  </div>
+  <nav>
+    <a href="#process">Process</a>
+    <a href="#tools">Tools</a>
+    <a href="#unmapped">Unmapped</a>
+    <a href="#controls">Controls</a>
+    <a href="#mistakes">Mistakes</a>
+    <a href="#sfcsv">SF CSV</a>
+  </nav>
+</header>
+
+<div class="page">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       SECTION 1 — WHAT THIS TOOL DOES
+  ════════════════════════════════════════════════════════════════ -->
+  <div class="section-header" style="margin-top:0">
+    <div class="section-num">★</div>
+    <div>
+      <h2>What this tool does</h2>
+      <p>Read this first — one paragraph overview</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <p>
+      <strong>Taxonomy Mapper V3</strong> takes a list of help-centre URLs (with extracted keywords) and
+      maps each URL to one or more <strong>taxonomy topics</strong> — the structured set of product/domain/segment/topic
+      combinations your organisation uses to classify content.
+    </p>
+    <p>
+      Matching is done by <strong>fuzzy string comparison</strong> (≥80% similarity by default) between
+      keywords and topic names, with synonyms bridging gaps in language.
+      The result is an Excel file showing every URL's matched topics, relevance score, and — for any
+      URL that didn't match — the reason why.
+    </p>
+    <p style="margin-bottom:0">
+      The improvement loop is iterative: run → analyse unmapped rows → fix synonyms / product routing /
+      noise phrases → re-run → repeat until the match rate target is reached.
+    </p>
+  </div>
+
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
+    <div class="pill pill-blue">Multi-country: BE · GB · NL · SE</div>
+    <div class="pill pill-gray">Default threshold: 80%</div>
+    <div class="pill pill-green">Output: taxonomy_match_{CC}_{YYYYMMDD_HHMM}.xlsx</div>
+  </div>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       SECTION 2 — THE IMPROVEMENT LOOP
+  ════════════════════════════════════════════════════════════════ -->
+  <div class="section-header" id="process">
+    <div class="section-num">1</div>
+    <div>
+      <h2>The improvement loop</h2>
+      <p>Run → analyse → fix → repeat until ≥80% match rate</p>
+    </div>
+  </div>
+
+  <div class="card">
+
+    <div class="flow">
+
+      <div class="flow-step">
+        <div class="flow-connector"><div class="flow-dot" style="border-color:var(--blue)"></div></div>
+        <div class="flow-body">
+          <div class="flow-label">Prepare input files</div>
+          <div class="flow-sub">
+            <span class="flow-badge pill pill-blue">Salesforce CSV</span>
+            GUI → <em>Import Salesforce CSV</em> tab → generates semantic_carriers xlsx<br>
+            <span style="font-size:11px;color:var(--text-3)">[GB only] Run <code>remove_top_level_pages.py</code> to strip nav pages first</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div>
+          <div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--blue)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Run the matcher</div>
+          <div class="flow-sub">
+            GUI <em>Setup tab</em> → select files → click <strong>Run Matching</strong><br>
+            Output filename auto-stamped: <code>taxonomy_match_BE_20260223_1430.xlsx</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div>
+          <div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--teal)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Check the match rate</div>
+          <div class="flow-sub">
+            GUI <em>Reports tab</em> → <strong>Generate Gap Analysis Report</strong> (files auto-populated)<br>
+            Use the <strong>per-unique-URL</strong> figure as the authoritative metric (not per-row)
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div>
+          <div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--blue)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Bulk fixes — biggest wins first</div>
+          <div class="flow-sub">
+            <strong>1. Product issues</strong> — GUI <em>Category Mapping tab</em> → add missing <code>Data_Categories__c</code> mappings (can unblock dozens of articles per entry)<br>
+            <strong>2. Never-matched topics</strong> — GUI <em>Synonym Assistant tab</em> → Gap Analysis mode → add synonyms for zero-coverage topics<br>
+            <strong>3. Near-misses</strong> — Open <code>synonym_review.html</code> → load <em>Keyword Recommendations</em> sheet → select HIGH/MEDIUM rows → export <code>synonym_patch_*.json</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div>
+          <div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--orange)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Row-by-row triage — remaining hard cases</div>
+          <div class="flow-sub">
+            Open <code>unmapped_review.html</code> → load the Results sheet → work by tab (Product first, then No Match, then Noise)<br>
+            Assign each row an action:
+            <span class="flow-badge pill pill-red" style="font-size:11px">Remove</span>
+            <span class="flow-badge pill pill-orange" style="font-size:11px">Product fix</span>
+            <span class="flow-badge pill pill-green" style="font-size:11px">Synonym fix</span>
+            <span class="flow-badge pill pill-purple" style="font-size:11px">Noise</span>
+            <span class="flow-badge pill pill-gray" style="font-size:11px">Skip</span><br>
+            <span style="font-size:11px;color:var(--text-3)">Exports: Exclusions JSON · Category Fixes JSON · Synonym Patch JSON · Noise Phrases TXT</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div>
+          <div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--blue)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Apply patches</div>
+          <div class="flow-sub">
+            GUI <em>Reports tab</em> → <strong>Apply Patches</strong> section →
+            load synonym patch + exclusions JSON → click <strong>Preview</strong> then <strong>Apply</strong><br>
+            Tick <em>"Re-run after applying"</em> to start the next run automatically
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div>
+          <div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--green)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Repeat until target reached</div>
+          <div class="flow-sub">
+            Each iteration should improve the match rate. Stop when ≥80% per unique URL
+            or when no further fixable unmapped rows remain.
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /flow -->
+
+    <div class="callout tip" style="margin-top:16px;margin-bottom:0">
+      <div class="callout-icon">💡</div>
+      <div>
+        <strong>Order matters.</strong> Always do bulk fixes before row-by-row triage.
+        One <code>category_mapping.json</code> entry can unblock 60+ articles instantly —
+        doing that before opening <code>unmapped_review.html</code> means far fewer rows to triage.
+        Check <em>Gap Analysis → Product Breakdown</em> to see which product has the most unmapped URLs and start there.
+      </div>
+    </div>
+
+  </div>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       SECTION 3 — TOOL REFERENCE
+  ════════════════════════════════════════════════════════════════ -->
+  <div class="section-header" id="tools">
+    <div class="section-num">2</div>
+    <div>
+      <h2>Tool reference</h2>
+      <p>What each tool does and when to use it</p>
+    </div>
+  </div>
+
+  <div class="tool-grid">
+
+    <div class="tool-card blue">
+      <div class="tool-name">taxonomy_matcher_gui.py</div>
+      <div class="tool-desc">Main application — run via <code>launch_gui.bat</code></div>
+      <div class="tool-when">
+        <strong>Use for:</strong> all day-to-day operations<br>
+        <div class="io-row"><span class="io-label">Tabs:</span>
+          Setup · Console · Synonym Editor · DS Editor · Category Mapping · Noise Phrases · Synonym Assistant · Reports · About
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;">
+        <div><strong>Setup tab</strong> — select files, run matching, URL pattern filter</div>
+        <div><strong>Synonym Editor</strong> — add/edit/delete synonyms per topic</div>
+        <div><strong>Category Mapping</strong> — map Salesforce categories to taxonomy products</div>
+        <div><strong>Noise Phrases</strong> — manage per-country content noise filters</div>
+        <div><strong>Reports tab</strong> — generate gap analysis, apply patches, re-run</div>
+      </div>
+    </div>
+
+    <div class="tool-card orange">
+      <div class="tool-name">unmapped_review.html</div>
+      <div class="tool-desc">Browser triage tool — open in Chrome/Edge (no server needed)</div>
+      <div class="tool-when">
+        <strong>Use after:</strong> bulk fixes (category_mapping + Synonym Assistant + synonym_review.html) — for remaining hard cases<br>
+        <div class="io-row"><span class="io-label">In:</span> Results sheet from taxonomy_match xlsx</div>
+        <div class="io-row"><span class="io-label">Out:</span>
+          <code>synonym_patch_*.json</code> · <code>unmapped_exclusions_*.json</code> ·
+          <code>category_fixes_*.json</code> · <code>noise_phrases_*.txt</code>
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;">
+        <div>5 actions per row · 4 filter tabs (Product / No Match / Artikel Noise / No KW):</div>
+        <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
+          <span class="pill pill-red" style="font-size:11px">Remove — off-topic, drop from denominator</span>
+          <span class="pill pill-orange" style="font-size:11px">Product — fix category routing</span>
+          <span class="pill pill-green" style="font-size:11px">Synonym — add keyword synonym</span>
+          <span class="pill pill-purple" style="font-size:11px">Noise — boilerplate phrase to filter</span>
+          <span class="pill pill-gray" style="font-size:11px">Skip — revisit later</span>
+        </div>
+        <div style="margin-top:6px;color:var(--text-2)">Work the <strong>Product tab first</strong> — one mapping fix can resolve entire groups at once.</div>
+      </div>
+    </div>
+
+    <div class="tool-card green">
+      <div class="tool-name">synonym_review.html</div>
+      <div class="tool-desc">Synonym suggestion browser tool — dark theme, multi-select</div>
+      <div class="tool-when">
+        <strong>Use after:</strong> running the match, to bulk-add near-miss synonyms<br>
+        <div class="io-row"><span class="io-label">In:</span> Keyword Recommendations sheet (near-misses 75–84%)</div>
+        <div class="io-row"><span class="io-label">Out:</span> <code>synonym_patch_*.json</code></div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;">
+        Filter by priority (HIGH/MEDIUM), select all relevant near-misses,
+        then export. Apply via GUI <em>Reports → Apply Patches</em>.
+      </div>
+    </div>
+
+    <div class="tool-card purple">
+      <div class="tool-name">gap_analysis_dashboard.html</div>
+      <div class="tool-desc">Visual coverage dashboard — standalone HTML</div>
+      <div class="tool-when">
+        <strong>Use:</strong> to understand overall coverage at a glance<br>
+        <div class="io-row"><span class="io-label">In:</span> Gap Analysis Report xlsx</div>
+        <div class="io-row"><span class="io-label">Out:</span> Read-only view — no exports</div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;">
+        Shows match rate by product, phantom topics, never-matched topics, synonym recommendations.
+        Good for management reporting.
+      </div>
+    </div>
+
+    <div class="tool-card teal">
+      <div class="tool-name">generate_taxonomy_gap_analysis.py</div>
+      <div class="tool-desc">8-sheet gap analysis Excel (run from GUI Reports tab)</div>
+      <div class="tool-when">
+        <strong>Use:</strong> after each run to measure progress and find next actions<br>
+        <div class="io-row"><span class="io-label">In:</span> Match output + taxonomy + optional semantic file</div>
+        <div class="io-row"><span class="io-label">Out:</span> <code>TAXONOMY_GAP_ANALYSIS_REPORT.xlsx</code></div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;">
+        Sheets: Executive Summary · Phantom Topics · Never-Matched ·
+        Comparison · Synonym Recs · Product Breakdown · Actions · Progress
+      </div>
+    </div>
+
+    <div class="tool-card" style="border-top-color:#9daab8;">
+      <div class="tool-name">apply_synonym_patch.py</div>
+      <div class="tool-desc" style="color:var(--text-2)">CLI — now also callable from GUI Reports tab</div>
+      <div class="tool-when">
+        <strong>Prefer:</strong> GUI <em>Apply Patches</em> button (does the same thing visually)<br>
+        <div class="io-row"><span class="io-label">In:</span> <code>synonym_patch_*.json</code></div>
+        <div class="io-row"><span class="io-label">Out:</span> Updated <code>synonyms.json</code> + timestamped backup</div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;">
+        Always creates a backup before modifying. Use <code>--dry-run</code> to preview.
+      </div>
+    </div>
+
+  </div>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       SECTION 4 — UNMAPPED DECISION TREE
+  ════════════════════════════════════════════════════════════════ -->
+  <div class="section-header" id="unmapped">
+    <div class="section-num">3</div>
+    <div>
+      <h2>What to do with unmapped URLs</h2>
+      <p>Every unmapped row has an <code>Unmapped_Reason</code>. Here's what each one means and how to fix it.</p>
+    </div>
+  </div>
+
+  <div class="card" style="text-align:center;margin-bottom:20px;">
+    <div class="decision-root">Look at the <code>Unmapped_Reason</code> column in the Results sheet</div>
+  </div>
+
+  <div class="decision-branches">
+
+    <!-- Branch 1: No keywords -->
+    <div class="branch red">
+      <div class="branch-header">
+        "No keywords extracted from row"
+      </div>
+      <div class="branch-body">
+        <p style="margin-bottom:8px;"><strong>Meaning:</strong> All Keyword 1–12 columns are empty. The matcher had nothing to work with.</p>
+        <strong>Fixes (in order):</strong>
+        <ol>
+          <li>Check if the <strong>Content Keyword Extractor</strong> was run on this file. If not, run it first.</li>
+          <li>Check if the source article has <strong>Title / Summary / Description</strong> content — content-less articles can't be mapped.</li>
+          <li>If the URL is genuinely empty/noise, use <strong>unmapped_review.html → Remove</strong> to exclude it from the denominator.</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Branch 2: Product filter -->
+    <div class="branch orange">
+      <div class="branch-header">
+        "Product filter excluded matches (semantic Product: X)"
+      </div>
+      <div class="branch-body">
+        <p style="margin-bottom:8px;"><strong>Meaning:</strong> The matcher <em>did</em> find topic matches, but they were all filtered out because the article's product didn't match the taxonomy product.</p>
+        <p style="margin-bottom:8px;"><strong>Check the <code>Suggested_Product</code> column</strong> — it shows which taxonomy product the best match belongs to, pre-populated in unmapped_review.html.</p>
+        <strong>Fixes (in order):</strong>
+        <ol>
+          <li>If <strong>Salesforce CSV</strong> import: the <code>Data_Categories__c</code> value isn't mapped — add it to <code>category_mapping.json</code> via the <strong>Category Mapping tab</strong>.</li>
+          <li>If the product is a <strong>known alias</strong> (e.g. "Adsolut boekhouden" vs "Adsolut boekhouding"): add to <code>product_synonyms</code> in <code>synonyms.json</code> via the Synonym Editor.</li>
+          <li>If the article genuinely covers multiple products, set the mapping to the canonical taxonomy product.</li>
+          <li>If the category tag is a <strong>Salesforce CRM tag</strong> (e.g. "Customers", "Administration") that doesn't correspond to any product, set the mapping to <code>null</code> to exclude these from the denominator.</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Branch 3: No matches -->
+    <div class="branch green">
+      <div class="branch-header">
+        "No matches above X% threshold"
+      </div>
+      <div class="branch-body">
+        <p style="margin-bottom:8px;"><strong>Meaning:</strong> Keywords exist, product filter isn't the issue — but the best fuzzy match score is below the threshold (default 80%).</p>
+        <strong>Fixes (in order):</strong>
+        <ol>
+          <li>Open <strong>synonym_review.html</strong>, load the <em>Keyword Recommendations</em> sheet — look for near-misses at 75–79% for this URL's keywords. Add as synonyms.</li>
+          <li>Open <strong>unmapped_review.html → Synonym action</strong> — type the correct topic synonym directly for this row.</li>
+          <li>If many URLs share the same boilerplate phrase that's confusing the matcher, add it to <strong>Noise Phrases tab</strong> to filter it out.</li>
+          <li>If the article covers a topic not yet in the taxonomy, raise a <strong>taxonomy gap</strong> request (see Gap Analysis → Never-Matched sheet).</li>
+          <li>Last resort: if the content is genuinely off-topic (product marketing, release notes, etc.) and can't be mapped, use <strong>Remove</strong> in unmapped_review to exclude it from the denominator.</li>
+        </ol>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="callout warn" style="margin-top:20px;">
+    <div class="callout-icon">⚠️</div>
+    <div>
+      <strong>Always use Gap Analysis for match rate — not the Console log.</strong>
+      The Console log shows <em>per-row</em> match rate (which inflates if articles have multiple products).
+      The Gap Analysis report shows <em>per-unique-URL</em> match rate — use that as the target metric.
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       SECTION 5 — WHICH FILE CONTROLS WHAT
+  ════════════════════════════════════════════════════════════════ -->
+  <div class="section-header" id="controls">
+    <div class="section-num">4</div>
+    <div>
+      <h2>Quick reference — which file controls what</h2>
+      <p>The four levers you'll touch most often</p>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="ref-table">
+      <thead>
+        <tr>
+          <th>I want to…</th>
+          <th>File / Setting</th>
+          <th>How to change it</th>
+          <th>Takes effect</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Make a keyword match a topic</strong> (e.g. "kwartaalbrief" → "Nieuwsbrief")</td>
+          <td><code>countries/{CC}/synonyms.json</code><br><span style="font-size:12px;color:var(--text-2)">synonyms section</span></td>
+          <td>GUI <strong>Synonym Editor tab</strong> → select topic → Add synonym<br>
+              or <code>synonym_review.html</code> → export → Apply Patches</td>
+          <td>Next run</td>
+        </tr>
+        <tr>
+          <td><strong>Route a Salesforce category to the right product</strong> (e.g. "Adsolut_KMO_beheer" → "Adsolut boekhouding")</td>
+          <td><code>countries/{CC}/category_mapping.json</code></td>
+          <td>GUI <strong>Category Mapping tab</strong> → Add Row or Edit Row</td>
+          <td>Next run</td>
+        </tr>
+        <tr>
+          <td><strong>Exclude a Salesforce CRM tag from matching</strong> (e.g. "Customers", "Administration")</td>
+          <td><code>countries/{CC}/category_mapping.json</code></td>
+          <td>GUI <strong>Category Mapping tab</strong> → set product to <em>(filter out)</em></td>
+          <td>Next run</td>
+        </tr>
+        <tr>
+          <td><strong>Treat two product names as the same</strong> (e.g. "Adsolut boekhouden" = "Adsolut boekhouding")</td>
+          <td><code>countries/{CC}/synonyms.json</code><br><span style="font-size:12px;color:var(--text-2)">product_synonyms section</span></td>
+          <td>GUI <strong>Synonym Editor tab</strong> → Product Synonyms panel → Add alias</td>
+          <td>Next run</td>
+        </tr>
+        <tr>
+          <td><strong>Stop a boilerplate phrase polluting keywords</strong> (e.g. "dit artikel legt uit")</td>
+          <td><code>countries/{CC}/noise_phrases.json</code></td>
+          <td>GUI <strong>Noise Phrases tab</strong> → Add Phrase → Save</td>
+          <td>Next run</td>
+        </tr>
+        <tr>
+          <td><strong>Remove a URL from the denominator</strong> (off-topic / noise pages)</td>
+          <td>Semantic carriers file → filtered copy</td>
+          <td><code>unmapped_review.html</code> → Noise or Remove action → export <code>unmapped_exclusions_*.json</code> → GUI Apply Patches</td>
+          <td>Next run (uses filtered file)</td>
+        </tr>
+        <tr>
+          <td><strong>Change the similarity threshold</strong></td>
+          <td><code>config.yaml</code> or GUI slider</td>
+          <td>GUI <strong>Setup tab</strong> → Threshold slider (default 80)</td>
+          <td>Current run</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Relevance label reference</h3>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="relevance-table">
+      <tr style="background:var(--bg-surface)">
+        <td style="font-weight:700;font-size:12px;padding:8px 12px;border-bottom:1px solid var(--border-md)">Label</td>
+        <td style="font-weight:700;font-size:12px;padding:8px 12px;border-bottom:1px solid var(--border-md)">Criteria</td>
+      </tr>
+      <tr><td>Best Match</td><td>Score ≥90% AND topic word appears in the URL path</td></tr>
+      <tr><td>Highly Relevant</td><td>Score ≥85% AND topic in URL</td></tr>
+      <tr><td>Relevant</td><td>Score &lt;85% but topic in URL</td></tr>
+      <tr><td>Somewhat Relevant</td><td>Score ≥90% but topic NOT in URL</td></tr>
+      <tr><td>Tangential</td><td>Score ≥85% but topic NOT in URL</td></tr>
+      <tr><td style="color:var(--text-2)">Low Relevance</td><td>Score 80–84% and NOT in URL</td></tr>
+      <tr><td style="color:var(--text-3)">Low Trust (URL source)</td><td>Score 80–84%, keyword came from URL path only</td></tr>
+    </table>
+  </div>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       SECTION 6 — COMMON MISTAKES
+  ════════════════════════════════════════════════════════════════ -->
+  <div class="section-header" id="mistakes">
+    <div class="section-num">5</div>
+    <div>
+      <h2>Common mistakes &amp; how to recover</h2>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--red)"></div> Semantic and taxonomy files are swapped</div>
+    <p><strong>Symptom:</strong> "0 matches" or bizarre error about missing columns (URL / Topic 1 not found).</p>
+    <p style="margin-bottom:0"><strong>Fix:</strong> GUI Setup tab → click <strong>Swap Files</strong> button, then re-run.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--orange)"></div> Match rate looks low but the output has many rows</div>
+    <p><strong>Symptom:</strong> Console says "73% matched" but Gap Analysis says "61%".</p>
+    <p style="margin-bottom:0"><strong>Cause:</strong> Console shows per-row rate; multi-product Salesforce articles inflate the row count.
+      Gap Analysis counts unique URLs.
+      <strong>Always use Gap Analysis as the authoritative metric.</strong>
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--orange)"></div> Hundreds of "Product filter excluded" for an unknown product name</div>
+    <p><strong>Symptom:</strong> <code>Unmapped_Reason = Product filter excluded matches (semantic Product: Adsolut_KMO_beheer)</code> on many rows.</p>
+    <p><strong>Cause:</strong> A <code>Data_Categories__c</code> value from Salesforce has no entry in <code>category_mapping.json</code>.</p>
+    <p style="margin-bottom:0"><strong>Fix:</strong> GUI <strong>Category Mapping tab</strong> → Add Row with the Salesforce value and the correct taxonomy product → Save → re-run.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--purple)"></div> Adding a synonym has no effect</div>
+    <p><strong>Symptom:</strong> You added a synonym but the URL is still unmapped after re-running.</p>
+    <p><strong>Possible causes:</strong></p>
+    <ul style="margin:6px 0 10px;padding-left:18px;font-size:13.5px;color:var(--text-2)">
+      <li>The synonym is a <strong>multi-word phrase</strong> but the keyword is a single word (single-word terms can't match multi-word synonyms by design).</li>
+      <li>The keyword is being <strong>filtered as noise</strong> before matching — check the Noise Phrases tab.</li>
+      <li>The article's product still doesn't match the taxonomy product — the product filter runs <em>after</em> synonyms.</li>
+      <li>The match score is still below threshold — try a shorter, more distinctive synonym.</li>
+    </ul>
+    <p style="margin-bottom:0"><strong>Debug:</strong> Enable <em>Debug Mode</em> in GUI Setup tab → re-run → check Console for per-keyword trace output for the affected URL.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--blue)"></div> Accidentally overwrote synonyms.json</div>
+    <p><strong>Fix:</strong> Backups are created automatically before every patch is applied.
+      Find the most recent <code>synonyms_backup_YYYYMMDD_HHMMSS.json</code> in <code>countries/{CC}/</code>
+      and rename it back to <code>synonyms.json</code>.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--red)"></div> Country not showing in the Setup tab dropdown</div>
+    <p><strong>Cause:</strong> Country is missing or disabled in <code>config.yaml</code>.</p>
+    <p style="margin-bottom:0"><strong>Fix:</strong> Open <code>config.yaml</code>, find the country entry, ensure <code>enabled: true</code> and the country code is uppercase (e.g. <code>DE:</code>). Restart the GUI.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--gray)"></div> Gap Analysis report shows phantom topics</div>
+    <p><strong>Meaning:</strong> Topics that appear in the match output but don't exist in the current taxonomy file.
+      Usually caused by running the matcher with an old taxonomy and then loading a newer taxonomy in the report generator.
+    </p>
+    <p style="margin-bottom:0"><strong>Fix:</strong> Ensure both the matcher and the report generator use the <em>same</em> taxonomy file. Re-run the match with the current taxonomy.</p>
+  </div>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       SECTION 7 — SALESFORCE CSV IMPORT
+  ════════════════════════════════════════════════════════════════ -->
+  <div class="section-header" id="sfcsv">
+    <div class="section-num">6</div>
+    <div>
+      <h2>Salesforce CSV Import</h2>
+      <p>What the Import SF CSV button does, the file it expects, and how to configure it</p>
+    </div>
+  </div>
+
+  <!-- WHAT IT DOES -->
+  <div class="card">
+    <p style="margin-bottom:14px;">
+      The <strong>📥 Import SF CSV</strong> button (Setup tab) converts a raw Salesforce Knowledge export —
+      a 482-column CSV full of HTML metadata — into a clean semantic carriers file that the matcher can use.
+      It handles URL extraction, Lightning URL conversion, keyword extraction from content, and
+      multi-product row expansion automatically.
+    </p>
+
+    <!-- Pipeline flow -->
+    <h3 style="margin-top:8px;">The pipeline</h3>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-connector"><div class="flow-dot" style="border-color:var(--gray)"></div></div>
+        <div class="flow-body">
+          <div class="flow-label">Salesforce Knowledge export</div>
+          <div class="flow-sub">
+            In Salesforce: Reports → Knowledge Articles → Export as CSV<br>
+            Result: <code>Knowledge__kav_*.csv</code> — 482+ columns, ~6 useful
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div><div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--blue)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Click 📥 Import SF CSV</div>
+          <div class="flow-sub">
+            Setup tab → Import SF CSV → select file + country code → click <strong>▶ Import CSV</strong><br>
+            Optionally select a Taxonomy file to rank keywords by relevance
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div><div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--teal)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Auto-processing (takes ~10–30s)</div>
+          <div class="flow-sub">
+            Extracts URLs from HTML anchor tags · converts Lightning URLs to public community URLs ·
+            expands multi-product rows via <code>Data_Categories__c</code> ·
+            extracts Keyword 1–12 from Title + Summary + Answer__c
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div><div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--green)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Output: Semantic_{CC}_{datetime}.xlsx</div>
+          <div class="flow-sub">
+            Clean file: URL · Title · Summary · Description · Product · Keyword 1–12<br>
+            Auto-populated as the Semantic File in Setup tab
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="line"></div><div class="arrow"></div>
+          <div class="flow-dot" style="border-color:var(--blue)"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-label">Click Run Matching</div>
+          <div class="flow-sub">
+            Semantic file already populated → just click <strong>▶ Run Matching</strong><br>
+            Output: <code>taxonomy_match_{CC}_{datetime}.xlsx</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSV FILE SPEC -->
+  <div class="card">
+    <h3 style="margin-top:0;">CSV file spec — what the importer looks for</h3>
+    <p>The importer auto-detects columns by name. Only these columns matter — the other 476+ are ignored.</p>
+    <table class="ref-table" style="margin-top:10px;">
+      <thead>
+        <tr>
+          <th>Column name in CSV</th>
+          <th>Required?</th>
+          <th>Used for</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Knowledge_Url__c</code></td>
+          <td><span class="pill pill-green" style="font-size:11px">Required</span></td>
+          <td>Article URL</td>
+          <td>Often contains HTML anchor tags — URL extracted automatically. Lightning format auto-converted.</td>
+        </tr>
+        <tr>
+          <td><code>Title</code></td>
+          <td><span class="pill pill-green" style="font-size:11px">Required</span></td>
+          <td>Keyword extraction</td>
+          <td>Title keywords get a lower fuzzy threshold (source-aware matching) — higher chance of matching</td>
+        </tr>
+        <tr>
+          <td><code>Summary</code></td>
+          <td><span class="pill pill-orange" style="font-size:11px">Recommended</span></td>
+          <td>Keyword extraction</td>
+          <td>2–3 word phrases only (no single words). Pass <code>--use-summary</code> or check "Use Summary" in GUI.</td>
+        </tr>
+        <tr>
+          <td><code>Answer__c</code> or <code>Description__c</code></td>
+          <td><span class="pill pill-orange" style="font-size:11px">Recommended</span></td>
+          <td>Keyword extraction</td>
+          <td>Article body. Boilerplate Dutch UI phrases filtered automatically via <code>NOISE_PHRASE_STARTS</code>.</td>
+        </tr>
+        <tr>
+          <td><code>Data_Categories__c</code></td>
+          <td><span class="pill pill-orange" style="font-size:11px">Recommended</span></td>
+          <td>Product assignment</td>
+          <td>Semicolon-separated Salesforce categories e.g. <code>Adsolut_Account;ExpertM_Plus</code>. Mapped to taxonomy products via <code>category_mapping.json</code>. Without this column, product filtering is skipped.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn" style="margin-top:14px;">
+      <div class="callout-icon">⚠</div>
+      <div>
+        <strong>BOM and column order:</strong> Both are handled automatically. You don't need to clean the CSV before importing — the importer strips byte-order marks from headers and detects column positions regardless of order.
+      </div>
+    </div>
+  </div>
+
+  <!-- METHOD A vs B -->
+  <div class="card">
+    <h3 style="margin-top:0;">Method A (NLUrl) vs Method B (Direct Import)</h3>
+    <p>There are two ways to get a semantic carriers file from a Salesforce CSV. Use whichever fits your situation.</p>
+    <table class="ref-table" style="margin-top:10px;">
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>Method A — NLUrl crawler</th>
+          <th>Method B — Import SF CSV</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>How</strong></td>
+          <td>Upload CSV to NLUrl (localhost:5000) → download <code>crawl_results_{lang}.xlsx</code></td>
+          <td>GUI Setup tab → 📥 Import SF CSV → select CSV → Import</td>
+        </tr>
+        <tr>
+          <td><strong>Keyword source</strong></td>
+          <td>Frequency n-gram (bigrams/trigrams from H1–H6 + bold text)</td>
+          <td>Content extraction from Title + Summary + Answer__c</td>
+        </tr>
+        <tr>
+          <td><strong>Keyword count</strong></td>
+          <td>Up to 15</td>
+          <td>Up to 12</td>
+        </tr>
+        <tr>
+          <td><strong>Language-aware</strong></td>
+          <td>Yes — stopwords per language</td>
+          <td>Partial</td>
+        </tr>
+        <tr>
+          <td><strong>HTML contamination</strong></td>
+          <td>0%</td>
+          <td>0% (BeautifulSoup used)</td>
+        </tr>
+        <tr>
+          <td><strong>Generic noise</strong></td>
+          <td>0%</td>
+          <td>&lt;5%</td>
+        </tr>
+        <tr>
+          <td><strong>Best for</strong></td>
+          <td>Production use, highest quality</td>
+          <td>Quick tests, no NLUrl access, single-tool workflow</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- KEY BEHAVIOURS -->
+  <div class="card">
+    <h3 style="margin-top:0;">Key behaviours during import</h3>
+
+    <h4>Lightning URL conversion</h4>
+    <p>
+      Salesforce internal URLs look like <code>/lightning/articles/Knowledge/{slug}?language=nl_BE</code>.
+      The importer converts these to the public community URL automatically using country-specific base URLs:
+    </p>
+    <table class="ref-table" style="margin-top:6px;margin-bottom:14px;">
+      <thead><tr><th>Country</th><th>Public base URL</th></tr></thead>
+      <tbody>
+        <tr><td>BE</td><td><code>https://taasupport.wolterskluwer.be/customers/s/article</code></td></tr>
+        <tr><td>NL</td><td><code>https://wktaaeu.my.site.com/nlcommunity/s/article</code></td></tr>
+        <tr><td>SE</td><td><code>https://wktaaeu.my.site.com/se/s/article</code></td></tr>
+      </tbody>
+    </table>
+
+    <h4>Multi-product row expansion via Data_Categories__c</h4>
+    <p>
+      If an article belongs to multiple products, <code>Data_Categories__c</code> contains multiple values
+      separated by semicolons. The importer splits these and creates one row per product:
+    </p>
+    <div style="font-family:var(--mono);font-size:12px;background:var(--bg-surface);border:1px solid var(--border-md);border-radius:var(--r);padding:12px 14px;margin-bottom:14px;color:var(--text-2)">
+      Input (1 row): <span style="color:var(--purple)">Data_Categories__c = "Adsolut_Account;ExpertM_Plus"</span><br>
+      Output (2 rows): Product = <span style="color:var(--green)">"Adsolut boekhouding"</span> &nbsp;·&nbsp; Product = <span style="color:var(--green)">"ExpertM"</span>
+    </div>
+    <p>Each row is then matched independently — one article can genuinely map to topics across multiple products.</p>
+
+    <h4>category_mapping.json — mapping Salesforce categories to taxonomy products</h4>
+    <p>
+      The <code>Data_Categories__c</code> values (e.g. <code>Adsolut_Account</code>, <code>ExpertM_Plus</code>)
+      are Salesforce internal names — they don't match taxonomy product names directly.
+      <code>countries/{CC}/category_mapping.json</code> maps them:
+    </p>
+    <div style="font-family:var(--mono);font-size:12px;background:var(--bg-surface);border:1px solid var(--border-md);border-radius:var(--r);padding:12px 14px;margin-bottom:10px;color:var(--text-2)">
+      <span style="color:var(--purple)">"Adsolut_Account"</span>: <span style="color:var(--green)">"Adsolut boekhouding"</span><br>
+      <span style="color:var(--purple)">"ExpertM_Plus"</span>: <span style="color:var(--green)">"ExpertM"</span><br>
+      <span style="color:var(--purple)">"Customers"</span>: <span style="color:var(--red)">null</span>  <span style="color:var(--text-3)">← null = exclude from denominator (Salesforce CRM tag, not a product)</span>
+    </div>
+    <p>
+      Edit via GUI <strong>Category Mapping tab</strong> (visual table editor) or directly in the JSON file.
+      Each country has its own file — Salesforce category names differ between BE, GB, and NL.
+    </p>
+    <div class="callout tip" style="margin-bottom:0;">
+      <div class="callout-icon">💡</div>
+      <div>
+        <strong>Missing mapping = product filter excluded.</strong> If a <code>Data_Categories__c</code> value
+        has no entry in <code>category_mapping.json</code>, those articles will appear in the output as
+        "Product filter excluded matches". Add the missing entry in the Category Mapping tab and re-run.
+        This is the single highest-yield fix when match rate is low.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<footer>
+  Taxonomy Mapper V3 &nbsp;·&nbsp; Workflow Guide &nbsp;·&nbsp;
+  Standalone file — no server required &nbsp;·&nbsp; Copy alongside unmapped_review.html and synonym_review.html
+</footer>
+
+</body>
+</html>

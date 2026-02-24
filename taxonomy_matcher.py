@@ -1,5 +1,5 @@
-"""
-NL Taxonomy Mapper V3
+﻿"""
+Taxonomy Mapper V3
 Matches URLs from semantic carriers to taxonomy topics using fuzzy string matching.
 NOW WITH MULTI-COUNTRY SUPPORT!
 """
@@ -12,9 +12,30 @@ import os
 import argparse
 from functools import lru_cache
 from country_config import CountryConfig
+from content_keyword_extractor import NOISE_PHRASE_STARTS as _NOISE_PHRASE_STARTS_DEFAULT
 
 # Pre-compiled regex for content keyword extraction (replaces 10-iteration loop)
 _SEPARATOR_PATTERN = re.compile(r'[-_/|:,.()\[\]]')
+
+# URL path navigation words — appear in Salesforce/Wolters Kluwer community URL
+# structure but carry no content meaning and should not influence matching.
+_URL_NAV_STOPWORDS = frozenset({
+    # Salesforce community path scaffolding
+    'artikelen',    # Dutch "articles" — nav section label on BE/NL community sites
+    'nlcommunity',  # NL community path prefix (wktaaeu.my.site.com/nlcommunity/...)
+    'customers',    # BE community path (/customers/s/article/...)
+    'lightning',    # Salesforce Lightning URL prefix (/lightning/articles/...)
+    'knowledge',    # Salesforce Knowledge object type in Lightning URLs
+    # Wolters Kluwer domain fragments (appear when URL is partially decoded)
+    'wktaaeu',      # subdomain fragment
+    'taasupport',   # BE support subdomain fragment
+    'wolterskluwer', # brand name (not a taxonomy topic)
+    'userdocs',     # GB userdocs subdomain
+    # Generic site navigation segments
+    'home', 'login', 'logout', 'search', 'sitemap',
+    'index', 'default', 'privacy', 'terms', 'contact',
+    'language', 'locale', 'lang',
+})
 
 
 # Module-level cached synonym expansion function
@@ -204,6 +225,18 @@ class TaxonomyMatcher:
             (k, tuple(v)) for k, v in self.synonyms.items()
         )
 
+        # Load product synonyms and build reverse alias map for O(1) lookup (v3.23)
+        # product_synonyms: {canonical_product: [alias1, alias2, ...]}
+        # _product_alias_map: {alias_lower: canonical_product}
+        _product_synonyms = self.country_config.load_product_synonyms(self.country_code)
+        self._product_alias_map = {}
+        for canonical, aliases in _product_synonyms.items():
+            for alias in aliases:
+                self._product_alias_map[alias.lower()] = canonical
+        if self._product_alias_map:
+            print(f"Product aliases loaded: {len(self._product_alias_map)} alias(es) for "
+                  f"{len(_product_synonyms)} canonical product(s)")
+
         # Store Summary column processing flag
         self.include_summary = include_summary
 
@@ -221,6 +254,18 @@ class TaxonomyMatcher:
         self.debug = debug
         self.max_rows = max_rows
         self.url_filter = url_filter.strip() if url_filter else ''
+
+        # Load per-country noise phrases; fall back to module-level default
+        import json as _json
+        _noise_path = (
+            os.path.join(os.path.dirname(__file__), 'countries',
+                         self.country_code, 'noise_phrases.json')
+        )
+        if os.path.exists(_noise_path):
+            with open(_noise_path, encoding='utf-8') as _f:
+                self._noise_phrase_starts = set(_json.load(_f))
+        else:
+            self._noise_phrase_starts = set(_NOISE_PHRASE_STARTS_DEFAULT)
         
     def load_data(self):
         """Load Excel files into pandas DataFrames."""
@@ -354,8 +399,14 @@ class TaxonomyMatcher:
         if sem_prod == tax_prod:
             return True
 
-        # Allow "Other" semantic product to match any taxonomy product
-        if sem_prod == 'Other':
+        # Allow "Other" or empty/NaN semantic product to match any taxonomy product (v3.24)
+        # Empty product means the article wasn't assigned a product (e.g. Salesforce null category)
+        if sem_prod == 'Other' or sem_prod == '':
+            return True
+
+        # Check product aliases — e.g. "Adsolut boekhouden" → "Adsolut boekhouding" (v3.23)
+        canonical = self._product_alias_map.get(sem_prod.lower())
+        if canonical and canonical == tax_prod:
             return True
 
         return False
@@ -394,14 +445,25 @@ class TaxonomyMatcher:
         # OPTIMIZATION: Filter to relevant entries BEFORE the loop
         # This reduces fuzzy comparisons by 50-80% when product is known
         if semantic_product is not None:
-            # Get entries for the specific product
-            product_entries = self._product_lookup.get(semantic_product, [])
-            # Also include entries with empty product (matches any semantic product)
-            empty_product_entries = self._product_lookup.get('', [])
-            # Also include "Something Else" entries (matches any semantic product)
-            something_else_entries = self._product_lookup.get('Something Else', [])
-            # Combine all relevant entries
-            entries_to_check = product_entries + empty_product_entries + something_else_entries
+            # Resolve product alias before lookup (v3.25)
+            # e.g. "Adsolut boekhouden" → "Adsolut boekhouding" so _product_lookup finds the entries
+            sem_prod_norm = '' if pd.isna(semantic_product) else str(semantic_product).strip()
+            # Treat empty/NaN and the string "nan" as full wildcard — match all taxonomy entries.
+            # Previously only empty-taxonomy-product entries were checked for NaN articles,
+            # so any article with no Salesforce product category could never match specific-product topics.
+            if sem_prod_norm == '' or sem_prod_norm.lower() == 'nan':
+                entries_to_check = self.taxonomy_lookup
+            else:
+                canonical = self._product_alias_map.get(sem_prod_norm.lower())
+                lookup_key = canonical if canonical else sem_prod_norm
+                # Get entries for the specific product (using resolved canonical name)
+                product_entries = self._product_lookup.get(lookup_key, [])
+                # Also include entries with empty product (matches any semantic product)
+                empty_product_entries = self._product_lookup.get('', [])
+                # Also include "Something Else" entries (matches any semantic product)
+                something_else_entries = self._product_lookup.get('Something Else', [])
+                # Combine all relevant entries
+                entries_to_check = product_entries + empty_product_entries + something_else_entries
         else:
             # No product filter - check all entries
             entries_to_check = self.taxonomy_lookup
@@ -493,6 +555,11 @@ class TaxonomyMatcher:
                 if all(w not in stopwords and len(w) >= 3 for w in ngram):
                     phrase = ' '.join(ngram)
                     if phrase not in seen:
+                        # Apply same noise filter as content_keyword_extractor (v3.22)
+                        if any(phrase.startswith(n) for n in self._noise_phrase_starts):
+                            continue
+                        if any(w in self._noise_phrase_starts for w in ngram):
+                            continue
                         seen.add(phrase)
                         phrases.append(phrase)
 
@@ -601,6 +668,8 @@ class TaxonomyMatcher:
 
             url_has_match = False
             had_matches_before_product_filter = False
+            suggested_product = ''        # best product from unfiltered match (v3.26)
+            suggested_product_score = 0   # score of that match
 
             # Track which keywords produced matches for Unmatched_Keywords column
             matched_keywords = set()
@@ -641,6 +710,17 @@ class TaxonomyMatcher:
                     unfiltered_matches = self.find_topic_matches(keyword, None, source=source)
                     if unfiltered_matches:
                         had_matches_before_product_filter = True
+                        # Track best suggested product across all keywords (v3.26)
+                        # unfiltered_matches is already sorted highest-score first
+                        best_unfiltered = unfiltered_matches[0]
+                        candidate = best_unfiltered['product']
+                        # Resolve "Something Else" via URL detection
+                        if candidate == 'Something Else':
+                            candidate = self.extract_product_from_url(url) or ''
+                        if candidate and candidate != 'Something Else':
+                            if best_unfiltered['similarity_score'] > suggested_product_score:
+                                suggested_product = candidate
+                                suggested_product_score = best_unfiltered['similarity_score']
 
                 for match in matches:
                     # Override "Something Else" with product detected from URL
@@ -676,7 +756,8 @@ class TaxonomyMatcher:
                             'Topic': match['topic'],
                             'Score': match['similarity_score'],
                             'Source': source,
-                            'Unmapped_Reason': ''
+                            'Unmapped_Reason': '',
+                            'Suggested_Product': ''
                         })
                         url_has_match = True
                         matched_keywords.add(keyword)
@@ -720,7 +801,7 @@ class TaxonomyMatcher:
                     }
                 entry = self._keyword_near_misses[key]
                 entry['frequency'] += 1
-                if len(entry['urls']) < 5:
+                if len(entry['urls']) < 10:
                     entry['urls'].append(url)
 
                 if near_miss_list:
@@ -758,6 +839,7 @@ class TaxonomyMatcher:
                     'Score': 0,
                     'Exact_Match': False,
                     'Unmapped_Reason': unmapped_reason,
+                    'Suggested_Product': suggested_product,
                     'Unmatched_Keywords': unmatched_str
                 })
             
@@ -818,11 +900,11 @@ class TaxonomyMatcher:
                 camel_parts = re.split(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', w)
                 words.extend(camel_parts)
 
-        # Clean and lowercase, filter short words (<=2 chars) and numbers
+        # Clean and lowercase, filter short words (<=2 chars), numbers, and nav words
         keywords = set()
         for w in words:
             w_clean = w.lower().strip()
-            if len(w_clean) > 2 and not w_clean.isdigit():
+            if len(w_clean) > 2 and not w_clean.isdigit() and w_clean not in _URL_NAV_STOPWORDS:
                 keywords.add(w_clean)
 
         # Cache the result
@@ -1061,6 +1143,7 @@ class TaxonomyMatcher:
             row['Top_Score'] = top_score
             row['Top_Relevance'] = self.calculate_relevance(top_score, top_topic, url_keywords, source=top_source)
             row['Unmapped_Reason'] = ''  # Matched rows have no unmapped reason
+            row['Suggested_Product'] = ''  # Only populated on unmapped rows (v3.26)
             row['Unmatched_Keywords'] = group['Unmatched_Keywords'].iloc[0] if 'Unmatched_Keywords' in group.columns else ''
 
             consolidated_rows.append(row)
@@ -1171,7 +1254,7 @@ class TaxonomyMatcher:
         # Reorder columns: URL, Title, Description, Summary, Product, Domain, Segment, Topic_1...Topic_N, Top_Score, Top_Relevance, Unmapped_Reason, Unmatched_Keywords, Rank
         base_cols = ['URL', 'Title', 'Description', 'Summary', 'Product', 'Domain', 'Segment']
         topic_cols = [f'Topic_{i}' for i in range(1, max_topics + 1)]
-        score_cols = ['Top_Score', 'Top_Relevance', 'Unmapped_Reason', 'Unmatched_Keywords', 'Rank']
+        score_cols = ['Top_Score', 'Top_Relevance', 'Unmapped_Reason', 'Suggested_Product', 'Unmatched_Keywords', 'Rank']
         final_col_order = base_cols + topic_cols + score_cols
         # Only include columns that exist in the dataframe
         final_col_order = [c for c in final_col_order if c in consolidated_df.columns]
@@ -1193,15 +1276,25 @@ class TaxonomyMatcher:
         print(f"\nSaving results to {self.output_file}...")
 
         # Generate keyword recommendations
+        print(f"  [1/4] Generating keyword recommendations...")
         self._recommendations_df = self.generate_keyword_recommendations()
+        rec_count = len(self._recommendations_df) if self._recommendations_df is not None else 0
+        print(f"  [1/4] Done — {rec_count} recommendations")
 
         # Write with ExcelWriter for multi-sheet support
+        print(f"  [2/4] Writing Results sheet ({len(results_df):,} rows)...")
         with pd.ExcelWriter(self.output_file, engine='openpyxl') as writer:
             sanitize_dataframe(results_df).to_excel(writer, sheet_name='Results', index=False)
+            print(f"  [2/4] Done")
             if self._recommendations_df is not None and len(self._recommendations_df) > 0:
+                print(f"  [3/4] Writing Keyword Recommendations sheet ({rec_count} rows)...")
                 sanitize_dataframe(self._recommendations_df).to_excel(
                     writer, sheet_name='Keyword Recommendations', index=False
                 )
+                print(f"  [3/4] Done")
+                print(f"  [4/4] Applying Excel formatting...")
+                self._format_recommendations_sheet(writer, self._recommendations_df)
+                print(f"  [4/4] Done")
 
         # Print keyword recommendations summary
         if self._recommendations_df is not None and len(self._recommendations_df) > 0:
@@ -1209,7 +1302,7 @@ class TaxonomyMatcher:
             total_near_misses = len(getattr(self, '_keyword_near_misses', {}))
             high_count = len(rec_df[rec_df['Priority'] == 'HIGH'])
             medium_count = len(rec_df[rec_df['Priority'] == 'MEDIUM'])
-            new_topic_count = len(rec_df[rec_df['Recommendation'] == 'Consider new topic'])
+            new_topic_count = len(rec_df[rec_df['Action'] == 'New topic?'])
             noise_filtered = total_near_misses - len(rec_df)
             print(f"\nKeyword Recommendations: {total_near_misses} unmatched keywords analyzed")
             print(f"  HIGH priority (add as synonym): {high_count}")
@@ -1226,6 +1319,95 @@ class TaxonomyMatcher:
             print(f"[!] Note: {unmapped_count} unmapped URLs included in output")
             print(f"    Filter by Domain='UNMAPPED' to review these URLs")
     
+    def _format_recommendations_sheet(self, writer, rec_df: pd.DataFrame) -> None:
+        """Apply Excel formatting to the Keyword Recommendations sheet."""
+        try:
+            from openpyxl.styles import Font, PatternFill, Alignment
+            from openpyxl.utils import get_column_letter
+
+            ws = writer.sheets['Keyword Recommendations']
+
+            # ── Colours ────────────────────────────────────────────────────
+            header_fill  = PatternFill(start_color='1E3A5F', end_color='1E3A5F', fill_type='solid')
+            header_font  = Font(bold=True, color='FFFFFF', size=10)
+            high_fill    = PatternFill(start_color='D1FAE5', end_color='D1FAE5', fill_type='solid')  # green-100
+            medium_fill  = PatternFill(start_color='FEF3C7', end_color='FEF3C7', fill_type='solid')  # amber-100
+            low_fill     = PatternFill(start_color='F3F4F6', end_color='F3F4F6', fill_type='solid')  # gray-100
+            high_font    = Font(bold=True, color='065F46', size=10)   # green-800
+            medium_font  = Font(bold=True, color='92400E', size=10)   # amber-800
+            low_font     = Font(color='6B7280', size=10)
+            normal_font  = Font(size=10)
+            wrap_align   = Alignment(wrap_text=True, vertical='top')
+            center_align = Alignment(horizontal='center', vertical='top')
+
+            # Column name → desired width (chars)
+            col_widths = {
+                'Priority': 10, 'Action': 16, 'Keyword': 28, 'Frequency': 10,
+                'Topic': 28, 'Score': 8, 'In_Synonyms': 12,
+                'Product': 20, 'Domain': 16, 'Segment': 20,
+                'Rejection_Reason': 30, 'Full_Recommendation': 36,
+            }
+            # URL columns get fixed width
+            url_col_width = 55
+            center_cols = {'Priority', 'Action', 'Frequency', 'Score', 'In_Synonyms'}
+
+            # Build column index map from header row
+            headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+            col_map = {name: idx + 1 for idx, name in enumerate(headers) if name}
+
+            # ── Format header row ─────────────────────────────────────────
+            ws.freeze_panes = 'A2'
+            ws.row_dimensions[1].height = 22
+            for col_idx in range(1, ws.max_column + 1):
+                cell = ws.cell(row=1, column=col_idx)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+
+            # ── Set column widths ─────────────────────────────────────────
+            for col_name, width in col_widths.items():
+                if col_name in col_map:
+                    ws.column_dimensions[get_column_letter(col_map[col_name])].width = width
+            for header in headers:
+                if header and str(header).startswith('URL_'):
+                    col_idx = col_map.get(header)
+                    if col_idx:
+                        ws.column_dimensions[get_column_letter(col_idx)].width = url_col_width
+
+            # ── Format data rows ──────────────────────────────────────────
+            priority_col = col_map.get('Priority')
+            for row_idx, priority in enumerate(rec_df['Priority'], start=2):
+                if priority == 'HIGH':
+                    row_fill, row_font = high_fill, high_font
+                elif priority == 'MEDIUM':
+                    row_fill, row_font = medium_fill, medium_font
+                else:
+                    row_fill, row_font = low_fill, low_font
+
+                for col_idx in range(1, ws.max_column + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    header = headers[col_idx - 1] if col_idx - 1 < len(headers) else ''
+                    # Priority cell gets priority fill+font; URL cells get normal fill
+                    if col_idx == priority_col:
+                        cell.fill = row_fill
+                        cell.font = Font(bold=True, color=row_font.color, size=10)
+                        cell.alignment = center_align
+                    elif header and str(header).startswith('URL_'):
+                        cell.fill = low_fill
+                        cell.font = Font(color='2563EB', size=9)  # blue link colour
+                        cell.alignment = wrap_align
+                    elif header in center_cols:
+                        cell.fill = row_fill
+                        cell.font = row_font
+                        cell.alignment = center_align
+                    else:
+                        cell.fill = row_fill
+                        cell.font = row_font
+                        cell.alignment = wrap_align
+
+        except Exception as e:
+            print(f"[Warning] Could not apply Keyword Recommendations formatting: {e}")
+
     def generate_keyword_recommendations(self) -> Optional[pd.DataFrame]:
         """
         Generate keyword recommendations from near-miss data collected during matching.
@@ -1279,24 +1461,39 @@ class TaxonomyMatcher:
                 recommendation = 'Noise - ignore'
                 priority = 'NOISE'
 
+            # Derive a short action label for the Action column
+            if 'Product filtered' in rejection_reason:
+                action = 'Cross-product'
+            elif nearest_score >= (threshold - 5) and frequency >= 3:
+                action = 'Add synonym'
+            elif nearest_score >= (threshold - 15) and frequency >= 2:
+                action = 'Review synonym'
+            elif nearest_score >= 50:
+                action = 'Consider synonym'
+            elif frequency >= 5 and nearest_score < 50:
+                action = 'New topic?'
+            else:
+                action = 'Review'
+
             row = {
+                'Priority': priority,
+                'Action': action,
                 'Keyword': keyword,
                 'Frequency': frequency,
-                'Nearest_Topic': nearest_topic,
-                'Nearest_Score': nearest_score,
+                'Topic': nearest_topic,
+                'Score': nearest_score,
+                'In_Synonyms': already_in_synonyms,
+                'Product': nearest_product,
+                'Domain': nearest_domain,
+                'Segment': nearest_segment,
                 'Rejection_Reason': rejection_reason,
-                'Recommendation': recommendation,
-                'Target_Product': nearest_product,
-                'Target_Domain': nearest_domain,
-                'Target_Segment': nearest_segment,
-                'Priority': priority,
-                'Already_In_Synonyms': already_in_synonyms,
+                'Full_Recommendation': recommendation,
             }
 
-            # Add up to 3 sample URLs
-            for i in range(3):
-                url = entry['urls'][i] if i < len(entry['urls']) else ''
-                row[f'Sample_URL_{i+1}'] = url
+            # Add all stored sample URLs (up to 10)
+            stored_urls = entry.get('urls', [])
+            for i in range(len(stored_urls)):
+                row[f'URL_{i+1}'] = stored_urls[i]
 
             rows.append(row)
 
@@ -1314,7 +1511,7 @@ class TaxonomyMatcher:
         # Sort: Priority (HIGH first) → Frequency (desc) → Score (desc)
         priority_order = {'HIGH': 0, 'MEDIUM': 1, 'LOW': 2}
         df['_priority_sort'] = df['Priority'].map(priority_order)
-        df = df.sort_values(['_priority_sort', 'Frequency', 'Nearest_Score'],
+        df = df.sort_values(['_priority_sort', 'Frequency', 'Score'],
                            ascending=[True, False, False])
         df = df.drop('_priority_sort', axis=1)
         df = df.reset_index(drop=True)
@@ -1324,7 +1521,7 @@ class TaxonomyMatcher:
     def run(self):
         """Execute the complete matching workflow."""
         print("=" * 60)
-        print(f"NL Taxonomy Mapper V3 - Country: {self.country_code}")
+        print(f"Taxonomy Mapper V3 - Country: {self.country_code}")
         print("=" * 60)
 
         # Print configuration details
@@ -1402,7 +1599,7 @@ def get_threshold_from_user() -> int:
 def main():
     """Main entry point with CLI argument support."""
     parser = argparse.ArgumentParser(
-        description='NL Taxonomy Mapper V3 - Multi-Country Support'
+        description='Taxonomy Mapper V3 - Multi-Country Support'
     )
     parser.add_argument(
         '-c', '--country',
@@ -1474,7 +1671,7 @@ def main():
     args = parser.parse_args()
 
     print("\n" + "=" * 60)
-    print("           NL TAXONOMY MAPPER V3 - SETUP")
+    print("           Taxonomy Mapper V3 - SETUP")
     print("=" * 60)
 
     # Get threshold (CLI arg takes precedence, otherwise prompt)

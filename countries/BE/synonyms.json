@@ -3,12 +3,224 @@
   "language": "Dutch/French",
   "version": "1.0",
   "synonyms": {
-    "bankzaken": ["bank", "banque", "banken"],
-    "facturatie": ["facturen", "factuur", "facturering", "facturation", "facture"],
-    "btw": ["belasting", "tva", "taxe"],
-    "betalen": ["betaling", "betalingen", "paiement", "payer"],
-    "klanten": ["kund", "client", "clients"],
-    "leveranciers": ["leverancier", "fournisseur", "fournisseurs"],
-    "boekhouding": ["comptabilité", "comptable"]
+    "bankzaken": [
+      "bank",
+      "banque",
+      "banken"
+    ],
+    "facturatie": [
+      "facturen",
+      "factuur",
+      "facturering",
+      "facturation",
+      "facture"
+    ],
+    "btw": [
+      "belasting",
+      "tva",
+      "taxe"
+    ],
+    "betalen": [
+      "betaling",
+      "betalingen",
+      "paiement",
+      "payer"
+    ],
+    "klanten": [
+      "kund",
+      "client",
+      "clients"
+    ],
+    "leveranciers": [
+      "leverancier",
+      "fournisseur",
+      "fournisseurs"
+    ],
+    "boekhouding": [
+      "comptabilité",
+      "comptable"
+    ],
+    "Vennootschapsbelasting": [
+      "superfisc vennootschapsbelasting",
+      "aangifte vennootschapsbelasting",
+      "vennootschapsbelasting aangifte",
+      "ven belasting",
+      "vennootschapsbelasting een",
+      "vennootschapsbelasting 2025",
+      "superfisc vennootschapsbelasting een",
+      "vennootschapsbelasting kan",
+      "vennootschapsbelasting wordt",
+      "vennootschapsbelasting krijg",
+      "vennootschapsbelasting niet",
+      "fiscalc vennootschapsbelasting",
+      "opstarten vennootschapsbelasting",
+      "vennootschapsbelasting programma"
+    ],
+    "Fiscaal dossier": [
+      "adsolut fiscaal dossier",
+      "het fiscaal dossier",
+      "fiscaal dossier aanmaken",
+      "dossier fiscaal",
+      "fiscaal dossier van",
+      "knop fiscaal dossier",
+      "fiscaal dossier krijgt",
+      "fiscaal dossier naar",
+      "fiscaal dossier niet",
+      "een fiscaal dossier"
+    ],
+    "CODA bestanden": [
+      "coda bestand",
+      "coda bestand importeren",
+      "hand van bestanden",
+      "coda import",
+      "coda bestanden",
+      "coda bestanden die",
+      "coda bestanden kunt",
+      "heeft coda bestanden",
+      "coda bestanden staan"
+    ],
+    "Jaarrekening": [
+      "accon jaarrekening",
+      "een jaarrekening",
+      "jaarrekening opmaken",
+      "jaarrekening indienen",
+      "jaarrekening kan"
+    ],
+    "BTW aangifte": [
+      "btw aangifte indienen",
+      "een btw aangifte",
+      "btw aangiftes",
+      "btw-aangifte",
+      "een aangifte",
+      "meervoudige btw aangifte"
+    ],
+    "BTW listing": [
+      "btw listing indienen",
+      "een btw listing",
+      "btw listings",
+      "btw-listing",
+      "btw listing"
+    ],
+    "Medewerkers": [
+      "een medewerker",
+      "medewerker aanmaken",
+      "nieuwe medewerker",
+      "medewerker toevoegen"
+    ],
+    "Koppelingen": [
+      "koppeling met",
+      "koppeling van",
+      "koppelen aan",
+      "een koppeling"
+    ],
+    "Peppol E-invoicing": [
+      "peppol factuur",
+      "een peppol factuur",
+      "peppol e-invoicing",
+      "inkomende peppol facturen",
+      "peppol facturen",
+      "het e-invoicing",
+      "een e-invoicing",
+      "adsolut e-invoicing",
+      "ons e-invoicing",
+      "het e-invoicingportaal"
+    ],
+    "Grootboekrekeningen": [
+      "een grootboekrekening",
+      "grootboekrekening aanmaken",
+      "grootboekrekening",
+      "grootboekrekening niet",
+      "grootboekrekening kan",
+      "een grootboekrekening kan",
+      "grootboekrekening kan aanmaken",
+      "grootboekrekening toch",
+      "een aangemaakte grootboekrekening",
+      "aangemaakte grootboekrekening toch",
+      "grootboekrekening toch selecteerbaar"
+    ],
+    "Aankoopfacturen": [
+      "aankoopfactuur soms",
+      "van aankoopfacturen",
+      "aankoopfactuur kan",
+      "aankoopfactuur",
+      "aankoopfacturen met"
+    ],
+    "Account aanmaken": [
+      "account aan"
+    ],
+    "Administrator": [
+      "administratie voor"
+    ],
+    "Biztax": [
+      "biztax"
+    ],
+    "E-Audit": [
+      "een e-audit"
+    ],
+    "Elektronisch Bankieren": [
+      "elektronische facturen"
+    ],
+    "Fiches 281": [
+      "fiches 281",
+      "fiche 281.20"
+    ],
+    "Import artikelcatalogus": [
+      "import artikel"
+    ],
+    "Intrastat": [
+      "met intrastat",
+      "hoe intrastat"
+    ],
+    "Investeringen": [
+      "voor investeringen"
+    ],
+    "Klantenportaal": [
+      "voor het klantenportaal",
+      "het klantenportaal",
+      "mijn klantenportaal"
+    ],
+    "Licenties": [
+      "licentie voor"
+    ],
+    "Meervoudige aangifte": [
+      "een meervoudige aangifte"
+    ],
+    "Meerwaarde": [
+      "meerwaarde van"
+    ],
+    "OCR": [
+      "ocr"
+    ],
+    "Overstappen": [
+      "overstappen naar"
+    ],
+    "SQL server": [
+      "sql service"
+    ],
+    "Serienummers": [
+      "met serienummers",
+      "het serienummer"
+    ],
+    "Verkoopbonnen": [
+      "verkoopbon aan",
+      "een verkoopbon"
+    ],
+    "Verkoopfacturen": [
+      "verkoopfactuur met"
+    ],
+    "Wachtwoord": [
+      "het wachtwoord kan",
+      "het wachtwoord van"
+    ],
+    "Wolters Kluwer Academy": [
+      "wolters kluwer"
+    ]
+  },
+  "product_synonyms": {
+    "Adsolut boekhouding": [
+      "Adsolut boekhouden",
+      "Adsolut Accounting",
+      "Adsolut_Accounting"
+    ]
   }
 }
